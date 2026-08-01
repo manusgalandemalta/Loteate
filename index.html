@@ -2948,34 +2948,35 @@ function planoCerrarPanel(){
 }
 
 
-// ─── FINANCIERO — HELPERS ────────────────────────────────
+// ─── FINANCIERO — HELPERS ─────────────────────────────────
 function planDefaults(){
   return {
-    metrosVendibles:0,
-    precioVentaM2:0,
-    tasaDescuentoAnual:0,
-    costoCamineria:0,
-    costoVarios:0,
-    costoEscritura:0,
-    costoComerciales:0,
-    cuotasTierra:[
-      {mes:0,monto:0},{mes:0,monto:0},{mes:0,monto:0},{mes:0,monto:0},{mes:0,monto:0}
-    ]
+    costoTierra:0, mesTierra:0,
+    costoCamineria:0, costoVarios:0, costoEscritura:0, costoComerciales:0,
+    tasaDescuentoAnual:15
   };
 }
 function loadPlan(){
   try{
     const p=db.config?.planJson;
     if(p&&Object.keys(p).length>0)return Object.assign(planDefaults(),p);
-    // Fallback a localStorage para Vallecito 3 (migración)
     const s=localStorage.getItem(lsKey('plan'))||(currentLoteoId===1?localStorage.getItem('vallecito3_plan'):null);
-    if(s)return Object.assign(planDefaults(),JSON.parse(s));
+    if(s){
+      const old=JSON.parse(s);
+      // Migrar cuotasTierra → costoTierra (suma total)
+      if(old.cuotasTierra&&!old.costoTierra){
+        old.costoTierra=(old.cuotasTierra||[]).reduce((s,c)=>s+parseFloat(c.monto||0),0);
+        old.mesTierra=parseInt((old.cuotasTierra||[])[0]?.mes||0);
+      }
+      return Object.assign(planDefaults(),old);
+    }
   }catch(e){}
   return planDefaults();
 }
 function calcEgresosPlan(plan,meses){
   const e=new Array(meses+1).fill(0);
-  (plan.cuotasTierra||[]).forEach(c=>{const m=parseInt(c.mes);if(m>=0&&m<=meses)e[m]+=(parseFloat(c.monto)||0);});
+  const mt=Math.max(0,Math.min(parseInt(plan.mesTierra||0),meses));
+  e[mt]+=(parseFloat(plan.costoTierra)||0);
   e[0]+=(parseFloat(plan.costoCamineria)||0)+(parseFloat(plan.costoVarios)||0)+(parseFloat(plan.costoEscritura)||0)+(parseFloat(plan.costoComerciales)||0);
   return e;
 }
@@ -2991,26 +2992,33 @@ function renderFlujoPlanChart(plan,cfg){
   if(window._finChart){window._finChart.destroy();window._finChart=null;}
   const canvas=document.getElementById('fin-chart');
   if(!canvas)return;
-  const meses=36,ePlan=calcEgresosPlan(plan,meses),real=calcFlujoReal(cfg.fechaInicio,meses);
+  const meses=36;
+  const ingresosPlanTotal=db.terrenos.filter(t=>t.Estado!=='Área Verde').reduce((s,t)=>s+parseFloat(t.PrecioListaUSD||0),0);
+  const ePlan=calcEgresosPlan(plan,meses);
+  // Distribuir ingresos del plan uniformemente a lo largo del horizonte
+  const ingPlanMes=new Array(meses+1).fill(0);
+  if(ingresosPlanTotal>0)for(let m=1;m<=meses;m++)ingPlanMes[m]=ingresosPlanTotal/meses;
+  const real=calcFlujoReal(cfg.fechaInicio,meses);
+  let cEP=0,cER=0,cIP=0,cIR=0;
+  const cumEP=[],cumER=[],cumIP=[],cumIR=[];
+  for(let m=0;m<=meses;m++){
+    cEP+=ePlan[m];cER+=real.egresos[m];cIP+=ingPlanMes[m];cIR+=real.ingresos[m];
+    cumEP.push(cEP);cumER.push(cER);cumIP.push(cIP);cumIR.push(cIR);
+  }
   const labels=Array.from({length:meses+1},(_,i)=>'M'+i);
-  let ac=0;const acReal=real.ingresos.map((ing,i)=>{ac+=ing-real.egresos[i];return ac;});
   window._finChart=new Chart(canvas,{
-    type:'bar',
+    type:'line',
     data:{labels,datasets:[
-      {label:'Egresos Plan',data:ePlan.map(v=>-v),backgroundColor:'rgba(231,76,60,0.25)',borderColor:'rgba(231,76,60,0.6)',borderWidth:1},
-      {label:'Egresos Real',data:real.egresos.map(v=>-v),backgroundColor:'rgba(192,57,43,0.75)',borderColor:'rgba(192,57,43,1)',borderWidth:1},
-      {label:'Cobros Real',data:real.ingresos,backgroundColor:'rgba(39,174,96,0.75)',borderColor:'rgba(39,174,96,1)',borderWidth:1},
-      {label:'Acum. Real',data:acReal,type:'line',borderColor:'#1A3A5C',backgroundColor:'transparent',borderWidth:2,pointRadius:2,yAxisID:'y2',tension:0.3}
+      {label:'Egresos Plan',data:cumEP,borderColor:'rgba(231,76,60,0.65)',backgroundColor:'transparent',fill:false,borderWidth:2,borderDash:[6,3],pointRadius:0,tension:0.1},
+      {label:'Egresos Real',data:cumER,borderColor:'rgba(192,57,43,1)',backgroundColor:'transparent',fill:false,borderWidth:2,pointRadius:2,tension:0.1},
+      {label:'Ingresos Plan',data:cumIP,borderColor:'rgba(39,174,96,0.55)',backgroundColor:'transparent',fill:false,borderWidth:2,borderDash:[6,3],pointRadius:0,tension:0.1},
+      {label:'Ingresos Real',data:cumIR,borderColor:'rgba(39,174,96,1)',backgroundColor:'transparent',fill:false,borderWidth:2,pointRadius:2,tension:0.1},
     ]},
     options:{
       responsive:true,maintainAspectRatio:false,
-      scales:{
-        x:{ticks:{font:{size:10}}},
-        y:{title:{display:true,text:'USD'},ticks:{callback:v=>'$'+(Math.abs(v)/1000).toFixed(0)+'k'}},
-        y2:{position:'right',grid:{drawOnChartArea:false},title:{display:true,text:'Acumulado'},ticks:{callback:v=>'$'+(v/1000).toFixed(0)+'k'}}
-      },
+      scales:{x:{ticks:{font:{size:10}}},y:{title:{display:true,text:'USD (acumulado)'},ticks:{callback:v=>'$'+(v/1000).toFixed(0)+'k'}}},
       plugins:{
-        tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': $'+Math.abs(ctx.raw||0).toLocaleString('es-AR',{maximumFractionDigits:0})}},
+        tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': $'+(ctx.raw||0).toLocaleString('es-AR',{maximumFractionDigits:0})}},
         legend:{position:'top',labels:{font:{size:11}}}
       }
     }
@@ -3037,43 +3045,33 @@ function _finExposicionReal(){
   movs.forEach(m=>{runAc+=m.v;if(runAc<exp)exp=runAc;});
   return{exp,hasData:movs.length>0};
 }
-
-// ─── DASHBOARD FINANCIERO ────────────────────────────────
-function renderFinanciero(){
-  if(userRole==='lectura'||userRole==='socio'){
-    renderFinancieroReadOnly();return;
-  }
-  if(!db.config) db.config={metrosComprados:0,valorTierra:0,fechaInicio:'',planoBase64:''};
-  const cfg=db.config;
-  const plan=loadPlan();
-  const metrosC=parseFloat(cfg.metrosComprados||0),valorT=parseFloat(cfg.valorTierra||0);
-  const diasProyecto=cfg.fechaInicio?Math.floor((new Date()-new Date(cfg.fechaInicio+'T12:00:00'))/(24*3600*1000)):null;
-  // Plan KPIs
+function _finKPIs(plan){
   const ingresosPlan=db.terrenos.filter(t=>t.Estado!=='Área Verde').reduce((s,t)=>s+parseFloat(t.PrecioListaUSD||0),0);
-  const costoTierraPlan=(plan.cuotasTierra||[]).reduce((s,c)=>s+parseFloat(c.monto||0),0);
-  const costoDesarrolloPlan=parseFloat(plan.costoCamineria||0)+parseFloat(plan.costoVarios||0)+parseFloat(plan.costoEscritura||0)+parseFloat(plan.costoComerciales||0);
-  const costoTotalPlan=costoTierraPlan+costoDesarrolloPlan;
-  const flujoNetoPlan=ingresosPlan-costoTotalPlan;
-  // Real KPIs
+  const costoTierra=parseFloat(plan.costoTierra||0);
+  const costoDesarrollo=parseFloat(plan.costoCamineria||0)+parseFloat(plan.costoVarios||0)+parseFloat(plan.costoEscritura||0)+parseFloat(plan.costoComerciales||0);
+  const costoTotal=costoTierra+costoDesarrollo;
+  const flujoPlan=ingresosPlan-costoTotal;
   const ingresosReal=db.cobranzas.reduce((s,c)=>s+parseFloat(c.Monto||0),0);
   const egresosReal=db.gastos.reduce((s,g)=>s+parseFloat(g.Monto||0),0);
-  const flujoNReal=ingresosReal-egresosReal;
-  const {exp:exposicionReal,hasData:expHasData}=_finExposicionReal();
+  const flujoReal=ingresosReal-egresosReal;
+  const{exp:exposicion,hasData:expHasData}=_finExposicionReal();
+  return{ingresosPlan,costoTierra,costoDesarrollo,costoTotal,flujoPlan,ingresosReal,egresosReal,flujoReal,exposicion,expHasData};
+}
+
+// ─── DASHBOARD FINANCIERO ─────────────────────────────────
+function renderFinanciero(){
+  if(userRole==='lectura'||userRole==='socio'){renderFinancieroReadOnly();return;}
+  if(!db.config)db.config={metrosComprados:0,valorTierra:0,fechaInicio:'',planoBase64:''};
+  const cfg=db.config;
+  const plan=loadPlan();
+  const k=_finKPIs(plan);
   const socioPos=_finSocioPos();
-  // Cuotas tierra rows
-  const cuotasRows=(plan.cuotasTierra||[]).map((c,i)=>
-    '<tr><td style="padding:4px 8px">Cuota '+(i+1)+'</td>'+
-    '<td style="padding:4px 8px"><input type="number" id="plan-ct-mes-'+i+'" value="'+(c.mes||0)+'" style="width:60px;padding:4px;border:1px solid var(--border);border-radius:5px" min="0" max="36"></td>'+
-    '<td style="padding:4px 8px"><input type="number" id="plan-ct-monto-'+i+'" value="'+(c.monto||0)+'" style="width:115px;padding:4px;border:1px solid var(--border);border-radius:5px"></td></tr>'
-  ).join('');
   id('content').innerHTML=`
   <div class="chart-card" style="margin-bottom:20px">
     <h3 style="margin-bottom:14px">⚙️ Datos del Proyecto</h3>
     <div class="form-grid">
-      <div class="form-group"><label>Metros Comprados (incl. calles y espacios)</label>
+      <div class="form-group"><label>Metros Comprados (total)</label>
         <input type="number" id="cfg-metros" value="${cfg.metrosComprados||''}" placeholder="56166"></div>
-      <div class="form-group"><label>Valor Total de la Tierra (USD)</label>
-        <input type="number" id="cfg-valor-tierra" value="${cfg.valorTierra||''}" placeholder="600000"></div>
       <div class="form-group"><label>Fecha de Inicio del Proyecto</label>
         <input type="date" id="cfg-fecha-inicio" value="${cfg.fechaInicio||''}"></div>
       <div class="form-group" style="align-self:flex-end">
@@ -3081,33 +3079,27 @@ function renderFinanciero(){
     </div>
     <details style="margin-top:16px">
       <summary style="cursor:pointer;font-size:13px;font-weight:600;color:var(--navy);padding:8px 0;user-select:none">
-        ▶ Parámetros del Modelo Financiero (plan)
+        ▶ Parámetros del Plan Financiero
       </summary>
       <div style="padding-top:12px">
+        <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-bottom:8px">Tierra</div>
         <div class="form-grid" style="margin-bottom:14px">
-          <div class="form-group"><label>M² Vendibles (plan)</label>
-            <input type="number" id="plan-m2v" value="${plan.metrosVendibles||34980}"></div>
-          <div class="form-group"><label>Precio Venta m² USD (plan)</label>
-            <input type="number" id="plan-precio" value="${plan.precioVentaM2||70}"></div>
-          <div class="form-group"><label>Tasa Descuento Anual %</label>
-            <input type="number" id="plan-tasa" value="${plan.tasaDescuentoAnual||15}" step="0.1"></div>
+          <div class="form-group"><label>Costo Total de la Tierra (USD)</label>
+            <input type="number" id="plan-costo-tierra" value="${plan.costoTierra||0}"></div>
+          <div class="form-group"><label>Mes de pago de la tierra (mes #)</label>
+            <input type="number" id="plan-mes-tierra" value="${plan.mesTierra||0}" min="0" max="36"></div>
         </div>
         <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-bottom:8px">Gastos de Desarrollo</div>
-        <div class="form-grid" style="margin-bottom:14px">
+        <div class="form-grid">
           <div class="form-group"><label>Caminería e Infraestructura (USD)</label>
-            <input type="number" id="plan-camineria" value="${plan.costoCamineria||200000}"></div>
+            <input type="number" id="plan-camineria" value="${plan.costoCamineria||0}"></div>
           <div class="form-group"><label>Gastos Varios (USD)</label>
-            <input type="number" id="plan-varios" value="${plan.costoVarios||170000}"></div>
+            <input type="number" id="plan-varios" value="${plan.costoVarios||0}"></div>
           <div class="form-group"><label>Gastos Escritura (USD)</label>
-            <input type="number" id="plan-escritura" value="${plan.costoEscritura||15000}"></div>
+            <input type="number" id="plan-escritura" value="${plan.costoEscritura||0}"></div>
           <div class="form-group"><label>Gastos Comerciales (USD)</label>
-            <input type="number" id="plan-comerciales" value="${plan.costoComerciales||15000}"></div>
+            <input type="number" id="plan-comerciales" value="${plan.costoComerciales||0}"></div>
         </div>
-        <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-bottom:8px">Cronograma Pago de Tierra</div>
-        <table style="width:auto;margin-bottom:4px">
-          <thead><tr><th style="padding:6px 8px">Cuota</th><th style="padding:6px 8px">Mes #</th><th style="padding:6px 8px">Monto USD</th></tr></thead>
-          <tbody>${cuotasRows}</tbody>
-        </table>
       </div>
     </details>
   </div>
@@ -3115,52 +3107,49 @@ function renderFinanciero(){
   <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:10px">📊 Plan vs Real</div>
   <div class="stats-grid" style="margin-bottom:20px">
     <div class="stat-card">
-      <div class="label">Ingreso Proyectado Total</div>
-      <div class="value" style="font-size:20px">${ingresosPlan>0?usd(ingresosPlan):'—'}</div>
-      <div class="sub">${ingresosPlan>0?db.terrenos.filter(t=>t.Estado!=='Área Verde').length+' lotes × precio de lista':''}</div>
+      <div class="label">Ingreso Proyectado</div>
+      <div class="value" style="font-size:20px">${k.ingresosPlan>0?usd(k.ingresosPlan):'—'}</div>
+      <div class="sub">${k.ingresosPlan>0?db.terrenos.filter(t=>t.Estado!=='Área Verde').length+' lotes × precio de lista':''}</div>
       <div style="margin-top:10px;font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.3px">Cobrado real</div>
-      <div style="font-size:19px;font-weight:700;color:${ingresosReal>0?'var(--green)':'var(--muted)'}">${usd(ingresosReal)}</div>
-      <div style="font-size:10px;color:var(--muted)">${ingresosPlan>0?Math.round(ingresosReal/ingresosPlan*100)+'% del plan':''}</div>
+      <div style="font-size:19px;font-weight:700;color:${k.ingresosReal>0?'var(--green)':'var(--muted)'}">${usd(k.ingresosReal)}</div>
+      <div style="font-size:10px;color:var(--muted)">${k.ingresosPlan>0?Math.round(k.ingresosReal/k.ingresosPlan*100)+'% del plan':''}</div>
     </div>
     <div class="stat-card gold">
       <div class="label">Costo Total Plan</div>
-      <div class="value" style="font-size:20px">${costoTotalPlan>0?usd(costoTotalPlan):'—'}</div>
-      <div class="sub">${costoTierraPlan>0?'Tierra '+usd(costoTierraPlan)+' + Desarrollo '+usd(costoDesarrolloPlan):''}</div>
+      <div class="value" style="font-size:20px">${k.costoTotal>0?usd(k.costoTotal):'—'}</div>
+      <div class="sub">${k.costoTierra>0?'Tierra '+usd(k.costoTierra)+' + Desarrollo '+usd(k.costoDesarrollo):''}</div>
       <div style="margin-top:10px;font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.3px">Gastado real</div>
-      <div style="font-size:19px;font-weight:700;color:var(--navy)">${usd(egresosReal)}</div>
-      <div style="font-size:10px;color:var(--muted)">${costoTotalPlan>0?Math.round(egresosReal/costoTotalPlan*100)+'% del plan':''}</div>
+      <div style="font-size:19px;font-weight:700;color:var(--navy)">${usd(k.egresosReal)}</div>
+      <div style="font-size:10px;color:var(--muted)">${k.costoTotal>0?Math.round(k.egresosReal/k.costoTotal*100)+'% del plan':''}</div>
     </div>
-    <div class="stat-card ${flujoNetoPlan>=0?'green':'red'}">
+    <div class="stat-card ${k.flujoPlan>=0?'green':'red'}">
       <div class="label">Flujo Neto Proyectado</div>
-      <div class="value" style="font-size:20px">${costoTotalPlan>0?usd(flujoNetoPlan):'—'}</div>
-      <div class="sub">${costoTotalPlan>0&&ingresosPlan>0?'Margen '+Math.round(flujoNetoPlan/ingresosPlan*100)+'%':''}</div>
+      <div class="value" style="font-size:20px">${k.costoTotal>0?usd(k.flujoPlan):'—'}</div>
+      <div class="sub">${k.costoTotal>0&&k.ingresosPlan>0?'Margen '+Math.round(k.flujoPlan/k.ingresosPlan*100)+'%':''}</div>
       <div style="margin-top:10px;font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.3px">Flujo neto real</div>
-      <div style="font-size:19px;font-weight:700;color:${flujoNReal>=0?'var(--green)':'var(--red)'}">${usd(flujoNReal)}</div>
-      <div style="font-size:10px;color:var(--muted)">${egresosReal>0||ingresosReal>0?'Cobros '+usd(ingresosReal)+' · Gastos '+usd(egresosReal):''}</div>
+      <div style="font-size:19px;font-weight:700;color:${k.flujoReal>=0?'var(--green)':'var(--red)'}">${usd(k.flujoReal)}</div>
+      <div style="font-size:10px;color:var(--muted)">${k.egresosReal>0||k.ingresosReal>0?'Cobros '+usd(k.ingresosReal)+' · Gastos '+usd(k.egresosReal):''}</div>
     </div>
-    <div class="stat-card ${exposicionReal<-300000?'red':exposicionReal<0?'gold':''}">
-      <div class="label">Exposición Máx. Plan</div>
-      <div class="value" style="font-size:20px">${costoTotalPlan>0?usd(-costoTotalPlan):'—'}</div>
-      <div class="sub">Capital máximo proyectado</div>
-      <div style="margin-top:10px;font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.3px">Exposición real</div>
-      <div style="font-size:19px;font-weight:700;color:${exposicionReal<0?'var(--red)':'var(--green)'}">${expHasData?usd(exposicionReal):'—'}</div>
-      <div style="font-size:10px;color:var(--muted)">Peor posición acumulada</div>
+    <div class="stat-card ${k.exposicion<-300000?'red':k.exposicion<0?'gold':''}">
+      <div class="label">Exposición Máx. Real</div>
+      <div class="value" style="font-size:20px">${k.expHasData?usd(k.exposicion):'—'}</div>
+      <div class="sub">Peor posición acumulada</div>
     </div>
   </div>
 
   <div class="chart-card" style="margin-bottom:20px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
-      <h3>📉 Flujo de Caja — 36 Meses</h3>
+      <h3>📈 Flujo Acumulado — Plan vs Real</h3>
       <div style="font-size:11px;color:var(--muted)">
-        <span style="color:rgba(231,76,60,0.7)">■</span> Egresos Plan &nbsp;
-        <span style="color:rgba(192,57,43,0.9)">■</span> Egresos Real &nbsp;
-        <span style="color:rgba(39,174,96,0.9)">■</span> Cobros Real &nbsp;
-        <span style="color:#1A3A5C;font-weight:700">—</span> Acum. Real
+        <span style="color:rgba(231,76,60,0.7)">- -</span> Egresos Plan &nbsp;
+        <span style="color:rgba(192,57,43,1)">—</span> Egresos Real &nbsp;
+        <span style="color:rgba(39,174,96,0.6)">- -</span> Ingresos Plan &nbsp;
+        <span style="color:rgba(39,174,96,1)">—</span> Ingresos Real
       </div>
     </div>
     ${cfg.fechaInicio
       ?'<div style="height:300px"><canvas id="fin-chart"></canvas></div>'
-      :'<div style="padding:30px;text-align:center;color:var(--muted);font-size:13px">⚠️ Configurá la fecha de inicio del proyecto para ver el gráfico</div>'
+      :'<div style="padding:30px;text-align:center;color:var(--muted);font-size:13px">⚠️ Configurá la fecha de inicio para ver el gráfico</div>'
     }
   </div>
 
@@ -3189,45 +3178,38 @@ function renderFinancieroReadOnly(){
   if(!db.config)db.config={metrosComprados:0,valorTierra:0,fechaInicio:'',planoBase64:''};
   const cfg=db.config;
   const plan=loadPlan();
-  const ingresosPlan=db.terrenos.filter(t=>t.Estado!=='Área Verde').reduce((s,t)=>s+parseFloat(t.PrecioListaUSD||0),0);
-  const costoTierraPlan=(plan.cuotasTierra||[]).reduce((s,c)=>s+parseFloat(c.monto||0),0);
-  const costoDesarrolloPlan=parseFloat(plan.costoCamineria||0)+parseFloat(plan.costoVarios||0)+parseFloat(plan.costoEscritura||0)+parseFloat(plan.costoComerciales||0);
-  const costoTotalPlan=costoTierraPlan+costoDesarrolloPlan;
-  const flujoNetoPlan=ingresosPlan-costoTotalPlan;
-  const ingresosReal=db.cobranzas.reduce((s,c)=>s+parseFloat(c.Monto||0),0);
-  const egresosReal=db.gastos.reduce((s,g)=>s+parseFloat(g.Monto||0),0);
-  const flujoNReal=ingresosReal-egresosReal;
-  const {exp:exposicionReal,hasData:expHasData}=_finExposicionReal();
+  const k=_finKPIs(plan);
   const socioPos=_finSocioPos();
   id('content').innerHTML=`
   <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:10px">📊 Plan vs Real</div>
   <div class="stats-grid" style="margin-bottom:20px">
     <div class="stat-card">
       <div class="label">Ingreso Proyectado</div>
-      <div class="value" style="font-size:20px">${ingresosPlan>0?usd(ingresosPlan):'—'}</div>
+      <div class="value" style="font-size:20px">${k.ingresosPlan>0?usd(k.ingresosPlan):'—'}</div>
       <div style="margin-top:10px;font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase">Cobrado real</div>
-      <div style="font-size:19px;font-weight:700;color:${ingresosReal>0?'var(--green)':'var(--muted)'}">${usd(ingresosReal)}</div>
+      <div style="font-size:19px;font-weight:700;color:${k.ingresosReal>0?'var(--green)':'var(--muted)'}">${usd(k.ingresosReal)}</div>
     </div>
     <div class="stat-card gold">
       <div class="label">Costo Total Plan</div>
-      <div class="value" style="font-size:20px">${costoTotalPlan>0?usd(costoTotalPlan):'—'}</div>
+      <div class="value" style="font-size:20px">${k.costoTotal>0?usd(k.costoTotal):'—'}</div>
+      <div class="sub">${k.costoTierra>0?'Tierra '+usd(k.costoTierra)+' + Desarrollo '+usd(k.costoDesarrollo):''}</div>
       <div style="margin-top:10px;font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase">Gastado real</div>
-      <div style="font-size:19px;font-weight:700;color:var(--navy)">${usd(egresosReal)}</div>
+      <div style="font-size:19px;font-weight:700;color:var(--navy)">${usd(k.egresosReal)}</div>
     </div>
-    <div class="stat-card ${flujoNetoPlan>=0?'green':'red'}">
+    <div class="stat-card ${k.flujoPlan>=0?'green':'red'}">
       <div class="label">Flujo Neto Proyectado</div>
-      <div class="value" style="font-size:20px">${costoTotalPlan>0?usd(flujoNetoPlan):'—'}</div>
+      <div class="value" style="font-size:20px">${k.costoTotal>0?usd(k.flujoPlan):'—'}</div>
       <div style="margin-top:10px;font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase">Flujo neto real</div>
-      <div style="font-size:19px;font-weight:700;color:${flujoNReal>=0?'var(--green)':'var(--red)'}">${usd(flujoNReal)}</div>
+      <div style="font-size:19px;font-weight:700;color:${k.flujoReal>=0?'var(--green)':'var(--red)'}">${usd(k.flujoReal)}</div>
     </div>
-    <div class="stat-card ${exposicionReal<-300000?'red':exposicionReal<0?'gold':''}">
+    <div class="stat-card ${k.exposicion<-300000?'red':k.exposicion<0?'gold':''}">
       <div class="label">Exposición Máx. Real</div>
-      <div class="value" style="font-size:20px">${expHasData?usd(exposicionReal):'—'}</div>
+      <div class="value" style="font-size:20px">${k.expHasData?usd(k.exposicion):'—'}</div>
       <div class="sub">Peor posición acumulada</div>
     </div>
   </div>
   <div class="chart-card" style="margin-bottom:20px">
-    <h3 style="margin-bottom:14px">📉 Flujo de Caja — 36 Meses</h3>
+    <h3 style="margin-bottom:14px">📈 Flujo Acumulado — Plan vs Real</h3>
     ${cfg.fechaInicio
       ?'<div style="height:280px"><canvas id="fin-chart"></canvas></div>'
       :'<div style="padding:30px;text-align:center;color:var(--muted);font-size:13px">Sin fecha de inicio configurada</div>'
@@ -3249,40 +3231,25 @@ function renderFinancieroReadOnly(){
 }
 async function savePlanFull(e){
   if(!db.config)db.config={};
-  // 1. Leer config del formulario
   db.config.metrosComprados=parseFloat(id('cfg-metros').value)||0;
-  db.config.valorTierra=parseFloat(id('cfg-valor-tierra').value)||0;
   db.config.fechaInicio=id('cfg-fecha-inicio').value;
-  // 2. Leer plan del formulario
   const plan=loadPlan();
-  if(id('plan-m2v'))plan.metrosVendibles=parseFloat(id('plan-m2v').value)||plan.metrosVendibles;
-  if(id('plan-precio'))plan.precioVentaM2=parseFloat(id('plan-precio').value)||plan.precioVentaM2;
-  if(id('plan-tasa'))plan.tasaDescuentoAnual=parseFloat(id('plan-tasa').value)||plan.tasaDescuentoAnual;
+  if(id('plan-costo-tierra'))plan.costoTierra=parseFloat(id('plan-costo-tierra').value)||0;
+  if(id('plan-mes-tierra'))plan.mesTierra=parseInt(id('plan-mes-tierra').value)||0;
   if(id('plan-camineria'))plan.costoCamineria=parseFloat(id('plan-camineria').value)||0;
   if(id('plan-varios'))plan.costoVarios=parseFloat(id('plan-varios').value)||0;
   if(id('plan-escritura'))plan.costoEscritura=parseFloat(id('plan-escritura').value)||0;
   if(id('plan-comerciales'))plan.costoComerciales=parseFloat(id('plan-comerciales').value)||0;
-  if(id('plan-ct-mes-0')){
-    plan.cuotasTierra=[0,1,2,3,4].map(i=>({
-      mes:parseInt((id('plan-ct-mes-'+i)||{}).value||plan.cuotasTierra[i]?.mes||0),
-      monto:parseFloat((id('plan-ct-monto-'+i)||{}).value||plan.cuotasTierra[i]?.monto||0)
-    }));
-  }
-  const totalCT=(plan.cuotasTierra||[]).reduce((s,c)=>s+(parseFloat(c.monto)||0),0);
-  if(totalCT===0&&db.config.valorTierra>0){
-    plan.cuotasTierra=[{mes:0,monto:db.config.valorTierra},{mes:0,monto:0},{mes:0,monto:0},{mes:0,monto:0},{mes:0,monto:0}];
-  }
   db.config.planJson=plan;
-  // 3. UN solo upsert con todo junto
   const payload={
     id:currentLoteoId,
     loteo_id:currentLoteoId,
     metros_comprados:db.config.metrosComprados||null,
-    valor_tierra:db.config.valorTierra||null,
+    valor_tierra:plan.costoTierra||null,
     fecha_inicio:db.config.fechaInicio||null,
     plan_json:plan
   };
-  const {error}=await sb.from('config').upsert(payload,{onConflict:'loteo_id'});
+  const{error}=await sb.from('config').upsert(payload,{onConflict:'loteo_id'});
   if(error){showToast('⚠️ Error guardando: '+error.message,'err');console.error(error);return;}
   renderFinanciero();
   if(e&&e.target){const btn=e.target;btn.textContent='✅ Guardado';setTimeout(()=>{btn.textContent='💾 Guardar todo';},2000);}
