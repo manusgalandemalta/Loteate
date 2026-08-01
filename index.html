@@ -2999,27 +2999,36 @@ function renderFlujoPlanChart(plan,cfg){
   const ingPlanMes=new Array(meses+1).fill(0);
   if(ingresosPlanTotal>0)for(let m=1;m<=meses;m++)ingPlanMes[m]=ingresosPlanTotal/meses;
   const real=calcFlujoReal(cfg.fechaInicio,meses);
-  let cEP=0,cER=0,cIP=0,cIR=0;
-  const cumEP=[],cumER=[],cumIP=[],cumIR=[];
+  // Posición neta acumulada (plan y real)
+  let netPlan=0,netReal=0;
+  const cumNetPlan=[],cumNetReal=[];
   for(let m=0;m<=meses;m++){
-    cEP+=ePlan[m];cER+=real.egresos[m];cIP+=ingPlanMes[m];cIR+=real.ingresos[m];
-    cumEP.push(cEP);cumER.push(cER);cumIP.push(cIP);cumIR.push(cIR);
+    netPlan+=ingPlanMes[m]-ePlan[m];
+    netReal+=real.ingresos[m]-real.egresos[m];
+    cumNetPlan.push(netPlan);
+    cumNetReal.push(netReal);
   }
   const labels=Array.from({length:meses+1},(_,i)=>'M'+i);
   window._finChart=new Chart(canvas,{
-    type:'line',
-    data:{labels,datasets:[
-      {label:'Egresos Plan',data:cumEP,borderColor:'rgba(231,76,60,0.65)',backgroundColor:'transparent',fill:false,borderWidth:2,borderDash:[6,3],pointRadius:0,tension:0.1},
-      {label:'Egresos Real',data:cumER,borderColor:'rgba(192,57,43,1)',backgroundColor:'transparent',fill:false,borderWidth:2,pointRadius:2,tension:0.1},
-      {label:'Ingresos Plan',data:cumIP,borderColor:'rgba(39,174,96,0.55)',backgroundColor:'transparent',fill:false,borderWidth:2,borderDash:[6,3],pointRadius:0,tension:0.1},
-      {label:'Ingresos Real',data:cumIR,borderColor:'rgba(39,174,96,1)',backgroundColor:'transparent',fill:false,borderWidth:2,pointRadius:2,tension:0.1},
-    ]},
+    data:{
+      labels,
+      datasets:[
+        {type:'bar',label:'Ingresos Real',data:real.ingresos,backgroundColor:'rgba(39,174,96,0.75)',borderColor:'rgba(39,174,96,1)',borderWidth:1,yAxisID:'y'},
+        {type:'bar',label:'Egresos Real',data:real.egresos.map(v=>-v),backgroundColor:'rgba(192,57,43,0.65)',borderColor:'rgba(192,57,43,1)',borderWidth:1,yAxisID:'y'},
+        {type:'line',label:'Posición Neta Real',data:cumNetReal,borderColor:'#1a3a5c',backgroundColor:'transparent',borderWidth:2.5,pointRadius:2.5,tension:0.25,yAxisID:'y2'},
+        {type:'line',label:'Posición Neta Plan',data:cumNetPlan,borderColor:'#5a9fd4',backgroundColor:'transparent',borderWidth:2,borderDash:[6,3],pointRadius:0,tension:0.25,yAxisID:'y2'},
+      ]
+    },
     options:{
       responsive:true,maintainAspectRatio:false,
-      scales:{x:{ticks:{font:{size:10}}},y:{title:{display:true,text:'USD (acumulado)'},ticks:{callback:v=>'$'+(v/1000).toFixed(0)+'k'}}},
+      scales:{
+        x:{ticks:{font:{size:9}}},
+        y:{title:{display:true,text:'Flujo mensual (USD)',font:{size:10}},ticks:{callback:v=>'$'+(Math.abs(v)/1000).toFixed(0)+'k',font:{size:9}},grid:{color:'#f0f4f8'}},
+        y2:{position:'right',title:{display:true,text:'Posición neta acum. (USD)',font:{size:10}},ticks:{callback:v=>'$'+(v/1000).toFixed(0)+'k',font:{size:9}},grid:{drawOnChartArea:false}}
+      },
       plugins:{
-        tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': $'+(ctx.raw||0).toLocaleString('es-AR',{maximumFractionDigits:0})}},
-        legend:{position:'top',labels:{font:{size:11}}}
+        tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': $'+Math.abs(ctx.raw||0).toLocaleString('es-AR',{maximumFractionDigits:0})}},
+        legend:{position:'top',labels:{font:{size:11},boxWidth:12,padding:10}}
       }
     }
   });
