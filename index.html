@@ -369,6 +369,7 @@ input[required-mark]::placeholder::after{content:' *';color:var(--red)}
     <div class="nav-item" onclick="showModule('ventas')"><span class="icon">📋</span>Ventas</div>
     <div class="nav-item" onclick="showModule('cobranzas')"><span class="icon">💳</span>Cobranzas</div>
     <div class="nav-item" onclick="showModule('gastos')"><span class="icon">🧾</span>Gastos</div>
+    <div class="nav-item role-admin" onclick="showModule('desarrollador')"><span class="icon">🏢</span>Desarrollador</div>
   </nav>
   <div class="version">LoteaTE+ · v3.0</div>
 </div>
@@ -419,6 +420,9 @@ input[required-mark]::placeholder::after{content:' *';color:var(--red)}
       </div>
       <div class="mob-more-item" onclick="showModule('gastos');closeMobMore()">
         <span class="mi-icon">🧾</span>Gastos
+      </div>
+      <div class="mob-more-item role-admin" onclick="showModule('desarrollador');closeMobMore()">
+        <span class="mi-icon">🏢</span>Desarrollador
       </div>
     </div>
     <div style="margin-top:16px;display:flex;gap:10px;justify-content:center">
@@ -769,8 +773,8 @@ function cobroToSB(c){return{nro_recibo:c.NroRecibo,fecha:c.Fecha||null,venta_id
 function sbToGasto(r){return{_sbid:r.id,Fecha:r.fecha||'',Concepto:r.concepto||'',Categoria:r.categoria||'',Monto:r.monto||0,Socio:r.socio||'',Obs:r.obs||'',ComprobanteUrl:r.comprobante_url||''};}
 function gastoToSB(g){return{fecha:g.Fecha||null,concepto:g.Concepto||null,categoria:g.Categoria||null,monto:g.Monto||null,socio:g.Socio||null,obs:g.Obs||null,comprobante_url:g.ComprobanteUrl||null,loteo_id:currentLoteoId};}
 
-function sbToConfig(r){return{metrosComprados:r.metros_comprados||0,valorTierra:r.valor_tierra||0,fechaInicio:r.fecha_inicio||'',planoBase64:r.plano_url||'',zonas:r.zonas||{},planJson:r.plan_json||{}};}
-function configToSB(c){return{id:currentLoteoId,metros_comprados:c.metrosComprados||null,valor_tierra:c.valorTierra||null,fecha_inicio:c.fechaInicio||null,loteo_id:currentLoteoId,plan_json:c.planJson||{}};}
+function sbToConfig(r){return{metrosComprados:r.metros_comprados||0,valorTierra:r.valor_tierra||0,fechaInicio:r.fecha_inicio||'',planoBase64:r.plano_url||'',zonas:r.zonas||{},planJson:r.plan_json||{},desarrollador:r.desarrollador_json||null};}
+function configToSB(c){return{id:currentLoteoId,metros_comprados:c.metrosComprados||null,valor_tierra:c.valorTierra||null,fecha_inicio:c.fechaInicio||null,loteo_id:currentLoteoId,plan_json:c.planJson||{},desarrollador_json:c.desarrollador||null};}
 
 // ─── CUENTA CORRIENTE / RECONCILIACIÓN ───────────────────
 function reconciliarVenta(ventaID){
@@ -893,7 +897,7 @@ async function loadFromSupabase(){
   db.cobranzas=(co.data||[]).map(sbToCobro);
   db.gastos=(g.data||[]).map(sbToGasto);
   if(cfg.data)db.config=sbToConfig(cfg.data);
-  else if(!db.config)db.config={metrosComprados:0,valorTierra:0,fechaInicio:'',planoBase64:''};
+  else if(!db.config)db.config={metrosComprados:0,valorTierra:0,fechaInicio:'',planoBase64:'',desarrollador:null};
   // Plano se guarda local (demasiado pesado para Supabase)
   const planoLocal=localStorage.getItem(lsKey('plano'))||localStorage.getItem('vallecito3_plano');
   if(planoLocal)db.config.planoBase64=planoLocal;
@@ -961,7 +965,7 @@ function fillSociosSelect(selectId){
   if(!el)return;
   el.innerHTML=getSocios().map(s=>`<option>${s.nombre}</option>`).join('')+'<option>Caja del Loteo</option>';
 }
-const db = { terrenos:[], clientes:[], ventas:[], cuotas:[], cobranzas:[], gastos:[], config:{metrosComprados:0,valorTierra:0,fechaInicio:'',planoBase64:''} };
+const db = { terrenos:[], clientes:[], ventas:[], cuotas:[], cobranzas:[], gastos:[], config:{metrosComprados:0,valorTierra:0,fechaInicio:'',planoBase64:'',desarrollador:null} };
 let editingTerrenoIdx = -1;
 let nextCobroId = 1;
 let nextReciboId = 1;
@@ -1044,6 +1048,7 @@ function showLoteoSelector(){
 // ── Seleccionar loteo y cargar datos ──
 async function selectLoteo(id, nombre){
   currentLoteoId=id;
+  _devEditData=null;
   document.getElementById('loteo-selector').classList.add('hidden');
   // Chip en topbar
   document.getElementById('loteo-chip-nombre').textContent=nombre;
@@ -1143,14 +1148,14 @@ function showModule(m){
     el.classList.toggle('active', el.textContent.trim().toLowerCase().includes(
       m==='dashboard'?'dashboard':m==='terrenos'?'terreno':m==='clientes'?'cliente':
       m==='ventas'?'venta':m==='cobranzas'?'cobr':m==='gastos'?'gasto':
-      m==='plano'?'plano':'financiero'
+      m==='plano'?'plano':m==='desarrollador'?'desarrollador':'financiero'
     ));
   });
   // Sincronizar bottom nav mobile
   document.querySelectorAll('#mobile-nav .mob-nav-item[data-mod]').forEach(el=>{
     el.classList.toggle('active', el.dataset.mod===m);
   });
-  const titles={dashboard:'Dashboard',terrenos:'Terrenos',clientes:'Clientes',ventas:'Ventas',cobranzas:'Cobranzas',gastos:'Gastos',plano:'Plano del Loteo',financiero:'Financiero'};
+  const titles={dashboard:'Dashboard',terrenos:'Terrenos',clientes:'Clientes',ventas:'Ventas',cobranzas:'Cobranzas',gastos:'Gastos',plano:'Plano del Loteo',financiero:'Financiero',desarrollador:'Datos del Desarrollador'};
   document.getElementById('page-title').textContent=titles[m]||m;
   renderCurrentModule();
 }
@@ -1163,7 +1168,7 @@ function closeMobMore(){
   document.getElementById('mob-more-sheet').classList.remove('open');
 }
 function renderCurrentModule(){
-  const fn={dashboard:renderDashboard,terrenos:renderTerrenos,clientes:renderClientes,ventas:renderVentas,cobranzas:renderCobranzas,gastos:renderGastos,plano:renderPlano,financiero:renderFinanciero};
+  const fn={dashboard:renderDashboard,terrenos:renderTerrenos,clientes:renderClientes,ventas:renderVentas,cobranzas:renderCobranzas,gastos:renderGastos,plano:renderPlano,financiero:renderFinanciero,desarrollador:renderDesarrollador};
   if(fn[currentModule]) fn[currentModule]();
 }
 
@@ -2003,6 +2008,84 @@ function numCuotasWords(n){
 }
 function formatUSD(n){return parseFloat(n).toLocaleString('es-AR',{minimumFractionDigits:0,maximumFractionDigits:0});}
 
+// ─── DATOS DEL DESARROLLADOR (por loteo) ─────────────────
+// Defaults reales pre-existentes, para que ningún loteo actual cambie
+// de boleto hasta que alguien edite sus datos desde la pestaña "Desarrollador".
+const DESARROLLADOR_DEFAULTS = {
+  1: { // Vallecito 3
+    titulares:[
+      {nombre:'Marcelo Ariel Galan de Malta', dni:'14.944.542'},
+      {nombre:'Tulio Rossini', dni:'32.198.099'},
+      {nombre:'Gustavo Guitelman', dni:'23.328.233'},
+    ],
+    domicilio:'Lote D 100, Chapelco Golf, Ruta 40 km. 2226 de la ciudad de San Martín de los Andes, Provincia de Neuquén',
+    ciudad:'San Martín de los Andes', provincia:'Neuquén',
+    departamento:'Lacar', superficieM2:'56166.02', nomenclaturaCatastral:'15-21-091-4486-0000',
+    fraccionamiento:'Cuarenta y Nueve (49) futuros Lotes',
+    agrimensor:'Fernando Lagazzi',
+    escrituraTexto:'ante el Registro Notarial número uno, a cargo del Dr. Julio Alberto Celave (Tte. Cnel Pérez 684, P.A.)',
+    jurisdiccionTexto:'los Tribunales Ordinarios de la IV Circunscripción Judicial de la Provincia del Neuquén, con asiento en la ciudad de Junín de los Andes',
+    loteoUbicacion:'San Martín de los Andes, Neuquén',
+    boletoTemplate:'',
+  }
+};
+function getDesarrollador(){
+  const base={titulares:[],domicilio:'',ciudad:'',provincia:'',departamento:'',superficieM2:'',nomenclaturaCatastral:'',fraccionamiento:'',agrimensor:'',escrituraTexto:'',jurisdiccionTexto:'',loteoUbicacion:'',boletoTemplate:''};
+  const def=DESARROLLADOR_DEFAULTS[currentLoteoId]||{};
+  const saved=(db.config&&db.config.desarrollador)||null;
+  return Object.assign({},base,def,saved||{});
+}
+function buildVendedoresDesc(d){
+  const items=(d.titulares||[]).filter(t=>t&&t.nombre);
+  if(!items.length)return '___';
+  const partes=items.map((t,i)=>`${i===0?'El/La Sr./Sra.':'el/la Sr./Sra.'} <b>${String(t.nombre).toUpperCase()}</b>${t.dni?`, DNI ${t.dni}`:''}`);
+  const listado=partes.length===1?partes[0]:partes.slice(0,-1).join('; ')+'; y '+partes[partes.length-1];
+  return `${listado}; todos domiciliados para los efectos del presente documento en ${d.domicilio||'___'}, en adelante denominados indistintamente <b>"EL DESARROLLADOR"</b>`;
+}
+function buildFirmasDesarrollador(d){
+  const items=(d.titulares||[]).filter(t=>t&&t.nombre);
+  if(!items.length)return '<div><div class="firma-line">EL DESARROLLADOR</div></div>';
+  return items.map(t=>`<div><div class="firma-line">${String(t.nombre).toUpperCase()}${t.dni?`<br>DNI: ${t.dni}`:''}</div></div>`).join('');
+}
+function renderTemplate(tpl,data){
+  return tpl.replace(/\{\{(\w+)\}\}/g,(m,k)=>Object.prototype.hasOwnProperty.call(data,k)?(data[k]??''):m);
+}
+const DEFAULT_BOLETO_TEMPLATE=`<h2>Boleto de Compra Venta</h2>
+<h3>Unidad Funcional {{LOTE}}</h3>
+<p>En la ciudad de {{CIUDAD}}, Provincia de {{PROVINCIA}}, a los <b>{{FECHA_ENCABEZADO}}</b>, entre, por una parte:</p>
+<p><b>LA PARTE VENDEDORA:</b> {{VENDEDORES_DESC}};</p>
+<p>Y por la otra parte:</p>
+<p><b>LA PARTE COMPRADORA:</b> {{COMPRADOR_DESC}}, en adelante denominado/a <b>"EL/LA COMPRADOR/A"</b>;</p>
+<p>Las partes convienen en celebrar el presente Boleto de Compra Venta que se regirá por las siguientes cláusulas y condiciones:</p>
+<div class="cla">Primera: Antecedentes</div>
+<p>"EL DESARROLLADOR" tiene a su cargo el desarrollo y urbanización de una fracción de terreno ubicada en el Departamento {{DEPARTAMENTO}}, Provincia de {{PROVINCIA}}, con una superficie total de {{SUPERFICIE_TEXTO}} ({{SUPERFICIE_M2}} mts²), Nomenclatura Catastral: {{NOMENCLATURA_CATASTRAL}}, sometida al fraccionamiento de {{FRACCIONAMIENTO}}.</p>
+<div class="cla">Segunda: Objeto</div>
+<p>EL DESARROLLADOR VENDE, CEDE y TRANSFIERE aproximadamente <b>{{SUPERFICIE_LOTE_TEXTO}} ({{SUPERFICIE_LOTE_M2}} m²)</b> indivisos y a subdividir, identificados comercialmente como <b>{{LOTE}}</b> correspondientes al proyecto de subdivisión confeccionado por el Agrimensor {{AGRIMENSOR}} (Anexo "1").</p>
+<div class="cla">Tercera: Precio y Forma de Pago</div>
+<p>Las partes realizan la presente operación por la suma única, Total y Convenida de <b>Dólares Billetes Estadounidenses {{PRECIO_TEXTO}} (U$S {{PRECIO_USD}}.-)</b>, suma que es abonada por EL/LA COMPRADOR/A de la siguiente manera:</p>
+<p>a) <b>Dólares Billetes Estadounidenses {{SENA_TEXTO}} (U$S {{SENA_USD}}.-)</b> en concepto de Seña/Adelanto, en este mismo acto, en dinero efectivo que EL DESARROLLADOR recibe de plena conformidad, otorgando por el presente suficiente recibo y carta de pago.</p>
+<p>b) El saldo, o sea la suma de <b>Dólares Billetes Estadounidenses {{SALDO_TEXTO}} (U$S {{SALDO_USD}}.-)</b>, EL/LA COMPRADOR/A se obliga a abonarlos en <b>{{NCUOTAS}} ({{NCUOTAS_TEXTO}}) cuotas mensuales y consecutivas</b>, venciendo la primera de ellas el <b>{{PRIMERA_CUOTA_FECHA}}</b> y la última el <b>{{ULTIMA_CUOTA_FECHA}}</b>, de acuerdo al siguiente plan de pagos:</p>
+{{TABLA_CUOTAS}}
+<p>La falta de pago de una (1) o más cuotas dejará a EL/LA COMPRADOR/A en mora automática, sin necesidad de interpelación judicial o extrajudicial.</p>
+<div class="cla">Cuarta: Lugar de Pago</div>
+<p>Las partes acuerdan como lugar de pago el domicilio del DESARROLLADOR.</p>
+<div class="cla">Quinta: Moneda de Pago</div>
+<p>Es condición ineludible de esta operación que se realice en Dólares BILLETES Estadounidenses. EL/LA COMPRADOR/A declara conocer la inestabilidad del mercado cambiario, las regulaciones vigentes (AFIP, BCRA) y los riesgos de pactar en moneda extranjera, renunciando a invocar en el futuro la teoría de la imprevisión o lesión. Si el pago en Dólares Billetes Estadounidenses no pudiera ser realizado por restricciones gubernamentales, EL/LA COMPRADOR/A podrá hacerlo en cualquier otra moneda a conformidad del VENDEDOR.</p>
+<div class="cla">Sexta: Mora y Penalidades por Incumplimiento</div>
+<p>En caso de incumplimiento de alguna de las partes, será de aplicación lo siguiente a favor de la cumplidora: a) EL/LA COMPRADOR/A podrá optar entre exigir el cumplimiento del contrato más daños y perjuicios, o resolver el presente contrato y exigir al VENDEDOR la devolución de las sumas entregadas. b) EL VENDEDOR podrá optar entre exigir el cumplimiento del contrato más daños y perjuicios, o resolver el presente contrato de pleno derecho y quedarse con las sumas que hubiere recibido, comunicando la resolución.</p>
+<div class="cla">Séptima: Declaraciones del Vendedor</div>
+<p>El VENDEDOR declara que los derechos y acciones que en este acto dispone se encuentran libres de todo gravamen, que no existe inhibición para disponer de las porciones indivisas y que el inmueble no reconoce embargos, hipotecas, ni gravamen o interdicción alguna.</p>
+<div class="cla">Octava: Posesión</div>
+<p>La posesión de la parcela será entregada a EL/LA COMPRADOR/A una vez finalizadas las obras de infraestructura por parte del DESARROLLADOR (redes de Agua, luz y cloacas), quedando a cargo del/la comprador/a las conexiones domiciliarias.</p>
+<div class="cla">Novena: Escritura</div>
+<p>La escritura traslativa de dominio será otorgada {{ESCRITURA_TEXTO}}. Los gastos, impuestos y honorarios serán a cargo de las partes según las costumbres locales.</p>
+<div class="cla">Décima: Cesión de Derechos</div>
+<p>En caso que EL/LA COMPRADOR/A proceda a la cesión del presente boleto, deberá ser en los mismos términos y condiciones, obligándose a comunicarle al DESARROLLADOR, quien deberá prestar su conformidad.</p>
+<div class="cla">Decimoprimera: Jurisdicción</div>
+<p>Para todos los efectos judiciales, las partes se someten a la jurisdicción de {{JURISDICCION_TEXTO}}, renunciando a todo otro fuero. Constituyen Domicilios Especiales en los lugares citados ut supra.</p>
+<p style="margin-top:20px">En prueba de conformidad, las partes proceden a firmar y ratificar el contenido del presente contrato, en dos ejemplares de un mismo tenor y a un solo efecto, a los <b>{{FECHA_ENCABEZADO}}</b>.</p>
+<div class="firmas" style="grid-template-columns:repeat({{FIRMAS_COLS}},1fr)">{{FIRMAS_DESARROLLADOR}}{{FIRMAS_COMPRADOR}}</div>`;
+
 function showBoleto(i){
   const v=db.ventas[i];
   const cliente=db.clientes.find(c=>c.ID===v.ClienteID);
@@ -2011,7 +2094,6 @@ function showBoleto(i){
   const primeraCuota=cuotasVenta[0];
   const ultimaCuota=cuotasVenta[cuotasVenta.length-1];
   const saldo=parseFloat(v.PrecioTotal)-parseFloat(v.Sena);
-  const mc=cuotasVenta.length?parseFloat(cuotasVenta[0].Monto):saldo/v.NCuotas;
   const m2=terr?terr.M2:'___';
   const nac=cliente?cliente.Nacionalidad||'argentino/a':'___';
   const ecivil=cliente?.EstadoCivil||'';
@@ -2031,51 +2113,49 @@ function showBoleto(i){
 
   boletoActual={v,cliente,terr};
 
-  const html=`
-<h2>Boleto de Compra Venta</h2>
-<h3>Unidad Funcional ${v.Lote}</h3>
-<p>En la ciudad de San Martín de los Andes, Provincia de Neuquén, a los <b>${fechaEncabezadoES(v.Fecha)}</b>, entre, por una parte:</p>
-<p><b>LA PARTE VENDEDORA:</b> El Sr. <b>MARCELO ARIEL GALAN DE MALTA</b>, argentino, DNI 14.944.542; el Sr. <b>TULIO ROSSINI</b>, DNI 32.198.099; y el Sr. <b>GUSTAVO GUITELMAN</b>, DNI 23.328.233; todos domiciliados para los efectos del presente documento en Lote D 100, Chapelco Golf, Ruta 40 km. 2226 de la ciudad de San Martín de los Andes, Provincia de Neuquén, en adelante denominados indistintamente <b>"EL DESARROLLADOR"</b>;</p>
-<p>Y por la otra parte:</p>
-<p><b>LA PARTE COMPRADORA:</b> ${compradorDesc}, en adelante denominado/a <b>"EL/LA COMPRADOR/A"</b>;</p>
-<p>Las partes convienen en celebrar el presente Boleto de Compra Venta que se regirá por las siguientes cláusulas y condiciones:</p>
-<div class="cla">Primera: Antecedentes</div>
-<p>"EL DESARROLLADOR" tiene a su cargo el desarrollo y urbanización de una fracción de terreno ubicada en el Departamento Lacar, Provincia del Neuquén, con una superficie total de CINCUENTA Y SEIS MIL CIENTO SESENTA Y SEIS METROS Y DOS DECÍMETROS CUADRADOS (56.166,02 mts²), Nomenclatura Catastral: 15-21-091-4486-0000, sometida al fraccionamiento de Cuarenta y Nueve (49) futuros Lotes.</p>
-<div class="cla">Segunda: Objeto</div>
-<p>EL DESARROLLADOR VENDE, CEDE y TRANSFIERE aproximadamente <b>${m2Words(m2)} (${m2} m²)</b> indivisos y a subdividir, identificados comercialmente como <b>${v.Lote}</b> correspondientes al proyecto de subdivisión confeccionado por el Agrimensor Fernando Lagazzi (Anexo "1").</p>
-<div class="cla">Tercera: Precio y Forma de Pago</div>
-<p>Las partes realizan la presente operación por la suma única, Total y Convenida de <b>Dólares Billetes Estadounidenses ${numToWords(parseFloat(v.PrecioTotal))} (U$S ${formatUSD(v.PrecioTotal)}.-)</b>, suma que es abonada por EL/LA COMPRADOR/A de la siguiente manera:</p>
-<p>a) <b>Dólares Billetes Estadounidenses ${numToWords(parseFloat(v.Sena))} (U$S ${formatUSD(v.Sena)}.-)</b> en concepto de Seña/Adelanto, en este mismo acto, en dinero efectivo que EL DESARROLLADOR recibe de plena conformidad, otorgando por el presente suficiente recibo y carta de pago.</p>
-<p>b) El saldo, o sea la suma de <b>Dólares Billetes Estadounidenses ${numToWords(saldo)} (U$S ${formatUSD(saldo)}.-)</b>, EL/LA COMPRADOR/A se obliga a abonarlos en <b>${v.NCuotas} (${numCuotasWords(parseInt(v.NCuotas)).toUpperCase()}) cuotas mensuales y consecutivas</b>, venciendo la primera de ellas el <b>${primeraCuota?fechaES(primeraCuota.FechaVenc):'___'}</b> y la última el <b>${ultimaCuota?fechaES(ultimaCuota.FechaVenc):'___'}</b>, de acuerdo al siguiente plan de pagos:</p>
-${(()=>{
-  const cuotasSaldo=cuotasVenta.filter(c=>!c.EsSena).sort((a,b)=>parseInt(a.Nro)-parseInt(b.Nro));
-  if(!cuotasSaldo.length) return '';
-  const filas=cuotasSaldo.map(c=>`<tr><td style="text-align:center;padding:4px 8px;border:1px solid #ccc">${c.Nro}</td><td style="padding:4px 8px;border:1px solid #ccc">${fechaES(c.FechaVenc)}</td><td style="text-align:right;padding:4px 8px;border:1px solid #ccc">U$S ${formatUSD(c.Monto)}</td></tr>`).join('');
-  return `<table style="width:100%;border-collapse:collapse;font-size:12px;margin:8px 0 12px 0"><thead><tr style="background:#f0f0f0"><th style="padding:4px 8px;border:1px solid #ccc">N°</th><th style="padding:4px 8px;border:1px solid #ccc">Vencimiento</th><th style="padding:4px 8px;border:1px solid #ccc">Monto</th></tr></thead><tbody>${filas}</tbody></table>`;
-})()}
-<p>La falta de pago de una (1) o más cuotas dejará a EL/LA COMPRADOR/A en mora automática, sin necesidad de interpelación judicial o extrajudicial.</p>
-<div class="cla">Cuarta: Lugar de Pago</div>
-<p>Las partes acuerdan como lugar de pago el domicilio del DESARROLLADOR.</p>
-<div class="cla">Quinta: Moneda de Pago</div>
-<p>Es condición ineludible de esta operación que se realice en Dólares BILLETES Estadounidenses. EL/LA COMPRADOR/A declara conocer la inestabilidad del mercado cambiario, las regulaciones vigentes (AFIP, BCRA) y los riesgos de pactar en moneda extranjera, renunciando a invocar en el futuro la teoría de la imprevisión o lesión. Si el pago en Dólares Billetes Estadounidenses no pudiera ser realizado por restricciones gubernamentales, EL/LA COMPRADOR/A podrá hacerlo en cualquier otra moneda a conformidad del VENDEDOR.</p>
-<div class="cla">Sexta: Mora y Penalidades por Incumplimiento</div>
-<p>En caso de incumplimiento de alguna de las partes, será de aplicación lo siguiente a favor de la cumplidora: a) EL/LA COMPRADOR/A podrá optar entre exigir el cumplimiento del contrato más daños y perjuicios, o resolver el presente contrato y exigir al VENDEDOR la devolución de las sumas entregadas. b) EL VENDEDOR podrá optar entre exigir el cumplimiento del contrato más daños y perjuicios, o resolver el presente contrato de pleno derecho y quedarse con las sumas que hubiere recibido, comunicando la resolución.</p>
-<div class="cla">Séptima: Declaraciones del Vendedor</div>
-<p>El VENDEDOR declara que los derechos y acciones que en este acto dispone se encuentran libres de todo gravamen, que no existe inhibición para disponer de las porciones indivisas y que el inmueble no reconoce embargos, hipotecas, ni gravamen o interdicción alguna.</p>
-<div class="cla">Octava: Posesión</div>
-<p>La posesión de la parcela será entregada a EL/LA COMPRADOR/A una vez finalizadas las obras de infraestructura por parte del DESARROLLADOR (redes de Agua, luz y cloacas), quedando a cargo del/la comprador/a las conexiones domiciliarias.</p>
-<div class="cla">Novena: Escritura</div>
-<p>La escritura traslativa de dominio será otorgada ante el Registro Notarial número uno, a cargo del Dr. Julio Alberto Celave (Tte. Cnel Pérez 684, P.A.). Los gastos, impuestos y honorarios serán a cargo de las partes según las costumbres locales.</p>
-<div class="cla">Décima: Cesión de Derechos</div>
-<p>En caso que EL/LA COMPRADOR/A proceda a la cesión del presente boleto, deberá ser en los mismos términos y condiciones, obligándose a comunicarle al DESARROLLADOR, quien deberá prestar su conformidad.</p>
-<div class="cla">Decimoprimera: Jurisdicción</div>
-<p>Para todos los efectos judiciales, las partes se someten a la jurisdicción de los Tribunales Ordinarios de la IV Circunscripción Judicial de la Provincia del Neuquén, con asiento en la ciudad de Junín de los Andes, renunciando a todo otro fuero. Constituyen Domicilios Especiales en los lugares citados ut supra.</p>
-<p style="margin-top:20px">En prueba de conformidad, las partes proceden a firmar y ratificar el contenido del presente contrato, en dos ejemplares de un mismo tenor y a un solo efecto, a los <b>${fechaEncabezadoES(v.Fecha)}</b>.</p>
-<div class="firmas">
-  <div><div class="firma-line">MARCELO GALAN DE MALTA<br>DNI: 14.944.542</div></div>
-  <div><div class="firma-line">TULIO ROSSINI<br>DNI: 32.198.099</div></div>
-  <div><div class="firma-line">${cliente?`${cliente.Nombre.toUpperCase()} ${cliente.Apellido.toUpperCase()}<br>DNI: ${cliente.DNI}`:'COMPRADOR/A<br>DNI: ___'}</div></div>
-</div>`;
+  const d=getDesarrollador();
+  const titularesValidos=(d.titulares||[]).filter(t=>t&&t.nombre);
+  const tablaCuotas=(()=>{
+    const cuotasSaldo=cuotasVenta.filter(c=>!c.EsSena).sort((a,b)=>parseInt(a.Nro)-parseInt(b.Nro));
+    if(!cuotasSaldo.length) return '';
+    const filas=cuotasSaldo.map(c=>`<tr><td style="text-align:center;padding:4px 8px;border:1px solid #ccc">${c.Nro}</td><td style="padding:4px 8px;border:1px solid #ccc">${fechaES(c.FechaVenc)}</td><td style="text-align:right;padding:4px 8px;border:1px solid #ccc">U$S ${formatUSD(c.Monto)}</td></tr>`).join('');
+    return `<table style="width:100%;border-collapse:collapse;font-size:12px;margin:8px 0 12px 0"><thead><tr style="background:#f0f0f0"><th style="padding:4px 8px;border:1px solid #ccc">N°</th><th style="padding:4px 8px;border:1px solid #ccc">Vencimiento</th><th style="padding:4px 8px;border:1px solid #ccc">Monto</th></tr></thead><tbody>${filas}</tbody></table>`;
+  })();
+  const firmasComprador=`<div><div class="firma-line">${cliente?`${cliente.Nombre.toUpperCase()} ${cliente.Apellido.toUpperCase()}<br>DNI: ${cliente.DNI}`:'COMPRADOR/A<br>DNI: ___'}</div></div>`;
+
+  const merge={
+    LOTE:v.Lote,
+    CIUDAD:d.ciudad||'___', PROVINCIA:d.provincia||'___',
+    FECHA_ENCABEZADO:fechaEncabezadoES(v.Fecha),
+    VENDEDORES_DESC:buildVendedoresDesc(d),
+    COMPRADOR_DESC:compradorDesc,
+    DEPARTAMENTO:d.departamento||'___',
+    SUPERFICIE_TEXTO:d.superficieM2?m2Words(d.superficieM2).toUpperCase():'___',
+    SUPERFICIE_M2:d.superficieM2||'___',
+    NOMENCLATURA_CATASTRAL:d.nomenclaturaCatastral||'___',
+    FRACCIONAMIENTO:d.fraccionamiento||'___',
+    SUPERFICIE_LOTE_TEXTO:m2Words(m2),
+    SUPERFICIE_LOTE_M2:m2,
+    AGRIMENSOR:d.agrimensor||'___',
+    PRECIO_TEXTO:numToWords(parseFloat(v.PrecioTotal)),
+    PRECIO_USD:formatUSD(v.PrecioTotal),
+    SENA_TEXTO:numToWords(parseFloat(v.Sena)),
+    SENA_USD:formatUSD(v.Sena),
+    SALDO_TEXTO:numToWords(saldo),
+    SALDO_USD:formatUSD(saldo),
+    NCUOTAS:v.NCuotas,
+    NCUOTAS_TEXTO:numCuotasWords(parseInt(v.NCuotas)).toUpperCase(),
+    PRIMERA_CUOTA_FECHA:primeraCuota?fechaES(primeraCuota.FechaVenc):'___',
+    ULTIMA_CUOTA_FECHA:ultimaCuota?fechaES(ultimaCuota.FechaVenc):'___',
+    TABLA_CUOTAS:tablaCuotas,
+    ESCRITURA_TEXTO:d.escrituraTexto||'___',
+    JURISDICCION_TEXTO:d.jurisdiccionTexto||'___',
+    FIRMAS_DESARROLLADOR:buildFirmasDesarrollador(d),
+    FIRMAS_COMPRADOR:firmasComprador,
+    FIRMAS_COLS:(titularesValidos.length||1)+1,
+  };
+  const tpl=d.boletoTemplate||DEFAULT_BOLETO_TEMPLATE;
+  const html=renderTemplate(tpl,merge);
 
   id('boleto-content').innerHTML=html;
   id('boleto-mail-status').className='boleto-mail-status';
@@ -2355,7 +2435,7 @@ function reciboHTML(c){
   const montoFmt=`U$S ${parseFloat(c.Monto).toLocaleString('es-AR',{minimumFractionDigits:2})}`;
   return `
   <div class="rcpt-title">RECIBO DE PAGO</div>
-  <div class="rcpt-sub">VALLECITO 3 — Loteo Residencial<br>San Martín de los Andes, Neuquén</div>
+  <div class="rcpt-sub">${getLoteoNombre().toUpperCase()} — Loteo Residencial<br>${getDesarrollador().loteoUbicacion||''}</div>
   <div class="rcpt-row"><b>Recibo N°:</b><span>${nro}</span></div>
   <div class="rcpt-row"><b>Fecha:</b><span>${c.Fecha}</span></div>
   <div class="rcpt-row"><b>Lote:</b><span>${c.Lote}</span></div>
@@ -2397,7 +2477,7 @@ async function enviarReciboMail(){
 
   const htmlBody=`<div style="font-family:monospace;max-width:480px;margin:0 auto;border:2px solid #222;padding:28px 32px">
   <h2 style="text-align:center;font-size:15px;letter-spacing:1px;margin-bottom:4px">RECIBO DE PAGO</h2>
-  <p style="text-align:center;font-size:11px;color:#555;border-bottom:1px dashed #888;padding-bottom:10px;margin-bottom:14px">VALLECITO 3 — Loteo Residencial<br>San Martín de los Andes, Neuquén</p>
+  <p style="text-align:center;font-size:11px;color:#555;border-bottom:1px dashed #888;padding-bottom:10px;margin-bottom:14px">${getLoteoNombre().toUpperCase()} — Loteo Residencial<br>${getDesarrollador().loteoUbicacion||''}</p>
   <table style="width:100%;font-size:12px;border-collapse:collapse">
     <tr><td><b>Recibo N°:</b></td><td style="text-align:right">${nro}</td></tr>
     <tr><td><b>Fecha:</b></td><td style="text-align:right">${c.Fecha}</td></tr>
@@ -2557,7 +2637,7 @@ function onSessionFileSelected(e){
       if(!confirm(`¿Cargar sesión del ${sesion.fecha?sesion.fecha.slice(0,10):'fecha desconocida'}?\nEsto reemplazará todos los datos actuales.`))return;
       Object.assign(db,sesion.db);
       // Asegurar que config exista
-      if(!db.config)db.config={metrosComprados:0,valorTierra:0,fechaInicio:'',planoBase64:''};
+      if(!db.config)db.config={metrosComprados:0,valorTierra:0,fechaInicio:'',planoBase64:'',desarrollador:null};
       if(sesion.nextCobroId)nextCobroId=sesion.nextCobroId;
       if(sesion.nextReciboId)nextReciboId=sesion.nextReciboId;
       showModule(document.querySelector('.nav-item.active')?.textContent?.trim().toLowerCase()||'dashboard');
@@ -3075,7 +3155,7 @@ function _finKPIs(plan){
 // ─── DASHBOARD FINANCIERO ─────────────────────────────────
 function renderFinanciero(){
   if(userRole==='lectura'||userRole==='socio'){renderFinancieroReadOnly();return;}
-  if(!db.config)db.config={metrosComprados:0,valorTierra:0,fechaInicio:'',planoBase64:''};
+  if(!db.config)db.config={metrosComprados:0,valorTierra:0,fechaInicio:'',planoBase64:'',desarrollador:null};
   const cfg=db.config;
   const plan=loadPlan();
   const k=_finKPIs(plan);
@@ -3189,7 +3269,7 @@ function renderFinanciero(){
   if(cfg.fechaInicio)renderFlujoPlanChart(plan,cfg);
 }
 function renderFinancieroReadOnly(){
-  if(!db.config)db.config={metrosComprados:0,valorTierra:0,fechaInicio:'',planoBase64:''};
+  if(!db.config)db.config={metrosComprados:0,valorTierra:0,fechaInicio:'',planoBase64:'',desarrollador:null};
   const cfg=db.config;
   const plan=loadPlan();
   const k=_finKPIs(plan);
@@ -3269,6 +3349,139 @@ async function savePlanFull(e){
   if(e&&e.target){const btn=e.target;btn.textContent='✅ Guardado';setTimeout(()=>{btn.textContent='💾 Guardar todo';},2000);}
 }
 function saveConfig(e){savePlanFull(e);}
+
+// ─── DATOS DEL DESARROLLADOR (UI) ────────────────────────
+let _devEditData=null; // copia en edición, no persistida hasta guardar
+function _devEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');}
+function _devSyncFromDOM(){
+  if(!_devEditData)return;
+  const d=_devEditData;
+  const map={'dev-domicilio':'domicilio','dev-ciudad':'ciudad','dev-provincia':'provincia','dev-jurisdiccion':'jurisdiccionTexto','dev-departamento':'departamento','dev-superficie':'superficieM2','dev-nomenclatura':'nomenclaturaCatastral','dev-fraccionamiento':'fraccionamiento','dev-agrimensor':'agrimensor','dev-escritura':'escrituraTexto','dev-ubicacion':'loteoUbicacion','dev-template':'boletoTemplate'};
+  Object.entries(map).forEach(([elId,field])=>{ if(id(elId)) d[field]=id(elId).value; });
+}
+function _devUpdateTitular(i,field,val){
+  if(!_devEditData)_devEditData=JSON.parse(JSON.stringify(getDesarrollador()));
+  if(!_devEditData.titulares[i])_devEditData.titulares[i]={nombre:'',dni:''};
+  _devEditData.titulares[i][field]=val;
+}
+function _devAddTitular(){_devSyncFromDOM();_devEditData.titulares.push({nombre:'',dni:''});renderDesarrollador();}
+function _devRemoveTitular(i){_devSyncFromDOM();_devEditData.titulares.splice(i,1);if(!_devEditData.titulares.length)_devEditData.titulares=[{nombre:'',dni:''}];renderDesarrollador();}
+function _devRestoreTemplate(){_devSyncFromDOM();_devEditData.boletoTemplate=DEFAULT_BOLETO_TEMPLATE;renderDesarrollador();}
+function _devClearTemplate(){_devSyncFromDOM();_devEditData.boletoTemplate='';renderDesarrollador();}
+
+const BOLETO_PLACEHOLDERS=['LOTE','CIUDAD','PROVINCIA','FECHA_ENCABEZADO','VENDEDORES_DESC','COMPRADOR_DESC','DEPARTAMENTO','SUPERFICIE_TEXTO','SUPERFICIE_M2','NOMENCLATURA_CATASTRAL','FRACCIONAMIENTO','SUPERFICIE_LOTE_TEXTO','SUPERFICIE_LOTE_M2','AGRIMENSOR','PRECIO_TEXTO','PRECIO_USD','SENA_TEXTO','SENA_USD','SALDO_TEXTO','SALDO_USD','NCUOTAS','NCUOTAS_TEXTO','PRIMERA_CUOTA_FECHA','ULTIMA_CUOTA_FECHA','TABLA_CUOTAS','ESCRITURA_TEXTO','JURISDICCION_TEXTO','FIRMAS_DESARROLLADOR','FIRMAS_COMPRADOR','FIRMAS_COLS'];
+
+function renderDesarrollador(){
+  if(userRole!=='superadmin'){
+    id('content').innerHTML='<div class="chart-card"><p style="color:var(--muted)">No tenés permiso para ver esta sección.</p></div>';
+    return;
+  }
+  if(!_devEditData)_devEditData=JSON.parse(JSON.stringify(getDesarrollador()));
+  const d=_devEditData;
+  if(!d.titulares||!d.titulares.length)d.titulares=[{nombre:'',dni:''}];
+
+  const titularesRows=d.titulares.map((t,i)=>`
+    <div style="display:grid;grid-template-columns:2fr 1fr auto;gap:8px;align-items:end;margin-bottom:8px">
+      <div class="form-group"><label>${i===0?'Titular / Socio':'&nbsp;'}</label><input type="text" value="${_devEsc(t.nombre)}" oninput="_devUpdateTitular(${i},'nombre',this.value)" placeholder="Nombre y apellido"></div>
+      <div class="form-group"><label>${i===0?'DNI':'&nbsp;'}</label><input type="text" value="${_devEsc(t.dni)}" oninput="_devUpdateTitular(${i},'dni',this.value)" placeholder="DNI"></div>
+      <button class="btn btn-outline btn-sm" onclick="_devRemoveTitular(${i})" title="Quitar titular" style="height:38px">🗑</button>
+    </div>`).join('');
+
+  id('content').innerHTML=`
+  <div class="chart-card" style="margin-bottom:20px">
+    <h3 style="margin-bottom:6px">🖋️ Titulares / Socios (Parte Vendedora)</h3>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:12px">Arman automáticamente la "Parte Vendedora" del boleto y generan un espacio de firma por cada titular cargado.</p>
+    ${titularesRows}
+    <button class="btn btn-outline btn-sm" onclick="_devAddTitular()">+ Agregar titular</button>
+  </div>
+
+  <div class="chart-card" style="margin-bottom:20px">
+    <h3 style="margin-bottom:14px">🏠 Domicilio y jurisdicción</h3>
+    <div class="form-grid">
+      <div class="form-group full"><label>Domicilio del Desarrollador</label><input type="text" id="dev-domicilio" value="${_devEsc(d.domicilio)}" placeholder="Ej: Lote D 100, Chapelco Golf, Ruta 40 km. 2226..."></div>
+      <div class="form-group"><label>Ciudad de firma</label><input type="text" id="dev-ciudad" value="${_devEsc(d.ciudad)}" placeholder="Ej: San Martín de los Andes"></div>
+      <div class="form-group"><label>Provincia de firma</label><input type="text" id="dev-provincia" value="${_devEsc(d.provincia)}" placeholder="Ej: Neuquén"></div>
+      <div class="form-group full"><label>Jurisdicción judicial (texto completo de la cláusula)</label><textarea id="dev-jurisdiccion" rows="2" placeholder="los Tribunales Ordinarios de la ... Circunscripción...">${_devEsc(d.jurisdiccionTexto)}</textarea></div>
+    </div>
+  </div>
+
+  <div class="chart-card" style="margin-bottom:20px">
+    <h3 style="margin-bottom:14px">🗺️ Descripción legal del inmueble</h3>
+    <div class="form-grid">
+      <div class="form-group"><label>Departamento</label><input type="text" id="dev-departamento" value="${_devEsc(d.departamento)}"></div>
+      <div class="form-group"><label>Superficie total (m²)</label><input type="number" id="dev-superficie" value="${_devEsc(d.superficieM2)}"></div>
+      <div class="form-group"><label>Nomenclatura Catastral</label><input type="text" id="dev-nomenclatura" value="${_devEsc(d.nomenclaturaCatastral)}"></div>
+      <div class="form-group"><label>Fraccionamiento</label><input type="text" id="dev-fraccionamiento" value="${_devEsc(d.fraccionamiento)}" placeholder='Ej: Cuarenta y Nueve (49) futuros Lotes'></div>
+    </div>
+  </div>
+
+  <div class="chart-card" style="margin-bottom:20px">
+    <h3 style="margin-bottom:14px">📐 Agrimensor</h3>
+    <div class="form-grid">
+      <div class="form-group full"><label>Agrimensor / Estudio de Agrimensura</label><input type="text" id="dev-agrimensor" value="${_devEsc(d.agrimensor)}" placeholder="Nombre del agrimensor"></div>
+    </div>
+  </div>
+
+  <div class="chart-card" style="margin-bottom:20px">
+    <h3 style="margin-bottom:14px">📜 Escritura</h3>
+    <div class="form-grid">
+      <div class="form-group full"><label>Texto de la cláusula de escritura (escribanía / registro interviniente)</label>
+      <textarea id="dev-escritura" rows="2" placeholder='ante el Registro Notarial número..., a cargo del Dr. ... (dirección)'>${_devEsc(d.escrituraTexto)}</textarea></div>
+    </div>
+  </div>
+
+  <div class="chart-card" style="margin-bottom:20px">
+    <h3 style="margin-bottom:14px">🧾 Datos del loteo para el recibo</h3>
+    <div class="form-grid">
+      <div class="form-group full"><label>Ubicación (ciudad, provincia)</label><input type="text" id="dev-ubicacion" value="${_devEsc(d.loteoUbicacion)}" placeholder="Ej: San Martín de los Andes, Neuquén"></div>
+    </div>
+  </div>
+
+  <div class="chart-card" style="margin-bottom:20px">
+    <h3 style="margin-bottom:6px">📄 Plantilla del Boleto de Compraventa</h3>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Texto completo del boleto, editable. Usá <code>{{PLACEHOLDER}}</code> para insertar datos automáticos (cargados arriba o generados por venta). Si lo dejás vacío, se usa la plantilla estándar.</p>
+    <details style="margin-bottom:10px">
+      <summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--navy)">▶ Ver placeholders disponibles</summary>
+      <div style="font-size:11px;color:var(--muted);padding:8px 0;line-height:2">${BOLETO_PLACEHOLDERS.map(p=>`<code style="background:var(--bg);padding:1px 5px;border-radius:4px;margin-right:4px">{{${p}}}</code>`).join('')}</div>
+    </details>
+    <textarea id="dev-template" rows="16" style="width:100%;font-family:monospace;font-size:11px;line-height:1.5" placeholder="Dejar vacío para usar la plantilla estándar">${_devEsc(d.boletoTemplate)}</textarea>
+    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-outline btn-sm" onclick="_devRestoreTemplate()">↺ Cargar la plantilla estándar acá para editarla</button>
+      <button class="btn btn-outline btn-sm" onclick="_devClearTemplate()">🗑 Vaciar (usar la estándar sin editar)</button>
+    </div>
+  </div>
+
+  <button class="btn btn-primary" onclick="saveDesarrollador(event)">💾 Guardar Datos del Desarrollador</button>
+  `;
+}
+
+async function saveDesarrollador(e){
+  if(!_devEditData)_devEditData=getDesarrollador();
+  _devSyncFromDOM();
+  const titulares=(_devEditData.titulares||[]).filter(t=>t&&t.nombre&&t.nombre.trim()).map(t=>({nombre:t.nombre.trim(),dni:(t.dni||'').trim()}));
+  const payload={
+    titulares,
+    domicilio:(_devEditData.domicilio||'').trim(),
+    ciudad:(_devEditData.ciudad||'').trim(),
+    provincia:(_devEditData.provincia||'').trim(),
+    jurisdiccionTexto:(_devEditData.jurisdiccionTexto||'').trim(),
+    departamento:(_devEditData.departamento||'').trim(),
+    superficieM2:(_devEditData.superficieM2||'').trim(),
+    nomenclaturaCatastral:(_devEditData.nomenclaturaCatastral||'').trim(),
+    fraccionamiento:(_devEditData.fraccionamiento||'').trim(),
+    agrimensor:(_devEditData.agrimensor||'').trim(),
+    escrituraTexto:(_devEditData.escrituraTexto||'').trim(),
+    loteoUbicacion:(_devEditData.loteoUbicacion||'').trim(),
+    boletoTemplate:_devEditData.boletoTemplate||'',
+  };
+  if(!db.config)db.config={};
+  db.config.desarrollador=payload;
+  const{error}=await sb.from('config').upsert(configToSB(db.config),{onConflict:'loteo_id'});
+  if(error){showToast('⚠️ Error guardando: '+error.message,'err');console.error(error);return;}
+  _devEditData=JSON.parse(JSON.stringify(payload));
+  showToast('✅ Datos del Desarrollador guardados');
+  if(e&&e.target){const btn=e.target;const orig=btn.textContent;btn.textContent='✅ Guardado';setTimeout(()=>{if(btn)btn.textContent=orig;},2000);}
+}
 
 // (renderPlano definida arriba — plano interactivo)
 
