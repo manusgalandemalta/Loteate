@@ -1709,7 +1709,9 @@ function abrirPerfil(i){
   const hoy=new Date();hoy.setHours(0,0,0,0);
   const totalComprado=ventasC.reduce((s,v)=>s+parseFloat(v.PrecioTotal||0),0);
   const totalPagado=cobranzasC.reduce((s,cb)=>s+parseFloat(cb.Monto||0),0);
-  const saldoPend=cuotasPend.reduce((s,q)=>s+parseFloat(q.Monto||0),0);
+  // Si hay cuotas cargadas usamos su saldo; si no, calculamos directo del precio
+  const saldoCuotas=cuotasPend.reduce((s,q)=>s+parseFloat(q.Monto||0),0);
+  const saldoPend=saldoCuotas>0?saldoCuotas:Math.max(0,totalComprado-totalPagado);
   const proxVenc=cuotasPend.filter(q=>q.FechaVenc).sort((a,b)=>new Date(a.FechaVenc)-new Date(b.FechaVenc))[0];
   const cuotasVencidas=cuotasPend.filter(q=>q.FechaVenc&&new Date(q.FechaVenc+'T12:00:00')<hoy);
 
