@@ -1800,7 +1800,7 @@ function renderVentas(filtro){
     const ppm2=m2>0?(parseFloat(v.PrecioTotal||0)/m2):null;
     return `<tr>
     <td><b>${v.Lote}</b></td><td>${v.ClienteNombre}</td><td>${v.Fecha||'—'}</td>
-    <td>${usd(v.PrecioTotal)}</td><td>${usd(v.Sena)}</td><td>${usd(calcSaldoVenta(v.ID))}</td>
+    <td>${usd(v.PrecioTotal)}</td><td>${usd(v.Sena)}</td><td>${(()=>{const s=calcSaldoVenta(v.ID);return s<=0?'<span style="color:var(--green);font-weight:600">Pagado</span>':usd(s);})()}</td>
     <td>${ppm2?usd(ppm2):'—'}</td>
     <td>${estadoFinancieroBadge(calcEstadoFinanciero(v.ID))}</td>
     <td><span class="badge ${v.EstadoBoleto==='Firmado'?'badge-green':'badge-orange'}">${v.EstadoBoleto||'—'}</span></td>
