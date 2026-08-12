@@ -1132,6 +1132,7 @@ async function syncFromSupabase(){
 
 let currentModule = 'dashboard';
 let ventaFiltroActivo = 'todas';
+let _busqClientes='', _busqVentas='', _busqCobranzas='';
 function showModule(m){
   currentModule=m;
   document.querySelectorAll('.nav-item').forEach(el=>{
@@ -1586,7 +1587,10 @@ async function confirmCsvImport(){
 
 // ─── CLIENTES ────────────────────────────────────────────
 function renderClientes(){
-  const rows=db.clientes.length?db.clientes.map((c,i)=>{
+  const q=_busqClientes.toLowerCase().trim();
+  const lista=q?db.clientes.filter(c=>(c.Apellido+' '+c.Nombre).toLowerCase().includes(q)||(c.Nombre+' '+c.Apellido).toLowerCase().includes(q)||(c.DNI||'').includes(q)):db.clientes;
+  const rows=lista.length?lista.map(c=>{
+    const i=db.clientes.indexOf(c);
     const vc=db.ventas.filter(v=>v.ClienteID===c.ID).length;
     return `<tr><td><b>${c.Apellido}, ${c.Nombre}</b></td><td>${c.DNI}</td><td>${c.CUIL||'—'}</td>
     <td>${c.Domicilio||'—'}${c.Ciudad?`, ${c.Ciudad}`:''}</td><td>${c.Mail||'—'}</td><td>${c.Tel||'—'}</td>
@@ -1598,11 +1602,14 @@ function renderClientes(){
       <button class="btn btn-outline btn-sm role-write" onclick="editCliente(${i})">✏️</button>
       <button class="btn btn-danger btn-sm role-admin" onclick="deleteCliente(${i})">🗑</button>
     </td></tr>`;
-  }).join(''):`<tr><td colspan="10" class="empty">Sin clientes registrados.</td></tr>`;
-  id('content').innerHTML=`<div style="display:flex;justify-content:flex-end;margin-bottom:14px"><button class="btn btn-primary role-write" onclick="openModal('modal-cliente');resetClienteForm()">+ Nuevo Cliente</button></div>
-  <div class="table-wrap"><div class="table-header"><h3>Clientes (${db.clientes.length})</h3></div>
+  }).join(''):`<tr><td colspan="10" class="empty">${q?'Sin resultados para "'+q+'"':'Sin clientes registrados.'}</td></tr>`;
+  id('content').innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:10px">
+  <input id="busq-cli" type="text" placeholder="🔍 Buscar por nombre o DNI..." value="${_busqClientes.replace(/"/g,'&quot;')}" oninput="_busqClientes=this.value;renderClientes()" style="flex:1;max-width:340px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px">
+  <button class="btn btn-primary role-write" onclick="openModal('modal-cliente');resetClienteForm()">+ Nuevo Cliente</button></div>
+  <div class="table-wrap"><div class="table-header"><h3>Clientes (${lista.length}${q?' de '+db.clientes.length:''})</h3></div>
   <table><thead><tr><th>Nombre</th><th>DNI</th><th>CUIL</th><th>Domicilio</th><th>Mail</th><th>Teléfono</th><th>Lotes</th><th>Estado Civil</th><th>DNI</th><th></th></tr></thead>
   <tbody>${rows}</tbody></table></div>`;
+  const inp=id('busq-cli');if(inp){inp.focus();inp.setSelectionRange(inp.value.length,inp.value.length);}
 }
 function toggleConyuge(){id('conyuge-group').style.display=id('c-ecivil').value==='Casado/a'?'flex':'none';}
 function resetClienteForm(){
@@ -1784,6 +1791,9 @@ function renderVentas(filtro){
   if(ventaFiltroActivo!=='todas'){
     ventas=ventas.filter(v=>calcEstadoFinanciero(v.ID)===ventaFiltroActivo);
   }
+  // Buscador de texto
+  const qv=_busqVentas.toLowerCase().trim();
+  if(qv) ventas=ventas.filter(v=>(v.ClienteNombre||'').toLowerCase().includes(qv)||(v.Lote||'').toLowerCase().includes(qv));
   // Contadores para chips
   const finCounts={completo:0,atraso:0,proceso:0,sinplan:0};
   db.ventas.forEach(v=>finCounts[calcEstadoFinanciero(v.ID)]++);
@@ -1812,12 +1822,15 @@ function renderVentas(filtro){
       <button class="btn btn-gold btn-sm" onclick="showBoleto(${realIdx})" title="Generar boleto">📄 Boleto</button>
     </td>
     <td><button class="btn btn-danger btn-sm role-admin" onclick="deleteVenta(${realIdx})">🗑</button></td>
-  </tr>`;}).join(''):`<tr><td colspan="11" class="empty">Sin ventas con este filtro.</td></tr>`;
-  id('content').innerHTML=`<div style="display:flex;justify-content:flex-end;margin-bottom:14px"><button class="btn btn-primary role-write" onclick="openModalVenta()">+ Nueva Venta</button></div>
+  </tr>`;}).join(''):`<tr><td colspan="11" class="empty">${qv?'Sin resultados para "'+qv+'"':'Sin ventas con este filtro.'}</td></tr>`;
+  id('content').innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:10px">
+  <input id="busq-ven" type="text" placeholder="🔍 Buscar por comprador o lote..." value="${_busqVentas.replace(/"/g,'&quot;')}" oninput="_busqVentas=this.value;renderVentas()" style="flex:1;max-width:340px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px">
+  <button class="btn btn-primary role-write" onclick="openModalVenta()">+ Nueva Venta</button></div>
   ${chips}
   <div class="table-wrap"><div class="table-header"><h3>Ventas (${ventas.length}${ventas.length!==db.ventas.length?' de '+db.ventas.length:''})</h3></div>
   <table><thead><tr><th>Lote</th><th>Comprador</th><th>Fecha</th><th>Precio</th><th>Seña</th><th>Saldo</th><th>USD/m²</th><th>Estado</th><th>Boleto</th><th></th><th></th></tr></thead>
   <tbody>${rows}</tbody></table></div>`;
+  const bv=id('busq-ven');if(bv){bv.focus();bv.setSelectionRange(bv.value.length,bv.value.length);}
 }
 function calcSaldoVenta(ventaID){
   const v=db.ventas.find(x=>x.ID===ventaID);if(!v)return 0;
@@ -2270,12 +2283,14 @@ function filtrarCobSocio(nombre){
 }
 function renderCobranzas(){
   const fs=_cobFiltroSocio;
+  const qc=_busqCobranzas.toLowerCase().trim();
   // KPIs por socio
   const porSocio={};getSocios().forEach(s=>porSocio[s.nombre]=0);
   db.cobranzas.forEach(c=>{if(porSocio[c.Socio]!==undefined)porSocio[c.Socio]+=parseFloat(c.Monto||0);});
   const totalCobrado=db.cobranzas.reduce((s,c)=>s+parseFloat(c.Monto||0),0);
   // Filtrar tabla
-  const lista=fs?db.cobranzas.filter(c=>c.Socio===fs):db.cobranzas;
+  let lista=fs?db.cobranzas.filter(c=>c.Socio===fs):db.cobranzas;
+  if(qc) lista=lista.filter(c=>(c.ClienteNombre||'').toLowerCase().includes(qc)||(c.Lote||'').toLowerCase().includes(qc)||String(c.NroRecibo||'').includes(qc));
   const totalFiltro=lista.reduce((s,c)=>s+parseFloat(c.Monto||0),0);
   const rows=lista.length?[...lista].reverse().map(c=>{
     const i=db.cobranzas.indexOf(c);
@@ -2307,13 +2322,15 @@ function renderCobranzas(){
       <div class="sub">${!fs?'Todos los socios':'← Ver todos'}</div>
     </div>
   </div>
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-    <div style="font-size:13px;color:var(--muted)">${fs?`Filtrando: <b>${fs}</b> — ${lista.length} cobros · <b style="color:var(--green)">${usd(totalFiltro)}</b>`:`${db.cobranzas.length} cobros totales`}</div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:10px">
+    <input id="busq-cob" type="text" placeholder="🔍 Buscar por cliente, lote o N° recibo..." value="${_busqCobranzas.replace(/"/g,'&quot;')}" oninput="_busqCobranzas=this.value;renderCobranzas()" style="flex:1;max-width:340px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px">
+    <div style="font-size:13px;color:var(--muted);flex:1">${(fs?'Filtrando: <b>'+fs+'</b> — ':'')+lista.length+' cobros · <b style="color:var(--green)">'+usd(totalFiltro)+'</b>'}</div>
     <button class="btn btn-primary role-write" onclick="openModalCobro()">+ Registrar Cobro</button>
   </div>
   <div class="table-wrap"><div class="table-header"><h3>Historial de Cobranzas</h3></div>
   <table><thead><tr><th>Recibo</th><th>Fecha</th><th>Lote</th><th>Cliente</th><th>Concepto</th><th>Monto</th><th>Medio</th><th>Socio</th><th></th></tr></thead>
   <tbody>${rows}</tbody></table></div>`;
+  const bc=id('busq-cob');if(bc&&qc){bc.focus();bc.setSelectionRange(bc.value.length,bc.value.length);}
 }
 // también el filtro de gastos necesita toggle — lo agregamos acá
 let _gastFiltroSocio=null;
