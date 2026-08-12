@@ -1372,6 +1372,8 @@ function renderCuotasAlert(){
 // así Terrenos y Ventas muestran siempre el mismo estado.
 function calcEstadoFinanciero(ventaID){
   if(!ventaID)return 'sinplan';
+  // Si saldo real < $5 (diferencias de redondeo), marcar como completo
+  if(calcSaldoVenta(ventaID)<5)return 'completo';
   const hoy=new Date();hoy.setHours(0,0,0,0);
   const cuotas=db.cuotas.filter(c=>c.VentaID===ventaID);
   if(!cuotas.length)return 'sinplan';
