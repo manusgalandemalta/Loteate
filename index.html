@@ -1217,7 +1217,7 @@ function renderDashboard(){
     <div class="stat-card"><div class="label">Lotes Disponibles</div><div class="value">${disp}</div><div class="sub">de ${db.terrenos.length} totales</div></div>
     <div class="stat-card gold"><div class="label">Total Vendido</div><div class="value">${usd(totalVentaUSD)}</div><div class="sub">${vend} lote${vend!==1?'s':''} vendido${vend!==1?'s':''}</div></div>
     <div class="stat-card green"><div class="label">Total Cobrado</div><div class="value">${usd(totalCobradoUSD)}</div><div class="sub">Saldo contractual: ${usd(totalVentaUSD-totalCobradoUSD)}</div></div>
-    <div class="stat-card red"><div class="label">Gastos Totales</div><div class="value">${usd(totalGastosUSD)}</div><div class="sub">${cuotasVenc} cuota${cuotasVenc!==1?'s':''} vencida${cuotasVenc!==1?'s':''}</div></div>
+    <div class="stat-card red"><div class="label">Gastos Totales</div><div class="value">${usd(totalGastosUSD)}</div><div class="sub">${cuotasVenc} venta${cuotasVenc!==1?'s':''} en atraso</div></div>
   </div>
 
   <div style="margin:0 0 6px"><span style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">📊 Situación Patrimonial</span></div>
@@ -1233,14 +1233,14 @@ function renderDashboard(){
       <div class="sub">${disp} lote${disp!==1?'s':''} sin vender</div>
     </div>
     <div class="stat-card" style="--before-color:var(--navy)">
-      <div class="label">Por Cobrar (cuotas pendientes)</div>
+      <div class="label">Por Cobrar (saldo real)</div>
       <div class="value">${usd(saldoPendiente)}</div>
-      <div class="sub">${db.cuotas.filter(c=>c.Estado!=='Pagada').length} cuota${db.cuotas.filter(c=>c.Estado!=='Pagada').length!==1?'s':''} en ${db.ventas.length} venta${db.ventas.length!==1?'s':''}</div>
+      <div class="sub">${db.ventas.filter(v=>calcSaldoVenta(v.ID)>5).length} venta${db.ventas.filter(v=>calcSaldoVenta(v.ID)>5).length!==1?'s':''} con saldo pendiente</div>
     </div>
     <div class="stat-card" style="--before-color:#8E44AD">
       <div class="label">Potencial Total Restante</div>
       <div class="value" style="font-size:20px">${usd(stockDisp+saldoPendiente)}</div>
-      <div class="sub">Stock + cuotas pendientes</div>
+      <div class="sub">Stock disponible + saldo por cobrar</div>
     </div>
   </div>
 
@@ -2301,7 +2301,7 @@ function renderCobranzas(){
   let lista=fs?db.cobranzas.filter(c=>c.Socio===fs):db.cobranzas;
   if(qc) lista=lista.filter(c=>(c.ClienteNombre||'').toLowerCase().includes(qc)||(c.Lote||'').toLowerCase().includes(qc)||String(c.NroRecibo||'').includes(qc));
   const totalFiltro=lista.reduce((s,c)=>s+parseFloat(c.Monto||0),0);
-  const rows=lista.length?[...lista].reverse().map(c=>{
+  const rows=lista.length?[...lista].sort((a,b)=>new Date(b.Fecha)-new Date(a.Fecha)).map(c=>{
     const i=db.cobranzas.indexOf(c);
     return`<tr>
     <td><b>N° ${c.NroRecibo}</b></td><td>${c.Fecha}</td><td><b>${c.Lote}</b></td>
