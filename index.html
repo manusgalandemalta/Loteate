@@ -481,6 +481,16 @@ input[required-mark]::placeholder::after{content:' *';color:var(--red)}
 </div>
 
 <!-- MODAL PERFIL CLIENTE -->
+<div class="modal-bg" id="modal-deudores">
+  <div class="modal" style="max-width:720px">
+    <div class="modal-head">
+      <h3>Saldos Pendientes por Cobrar</h3>
+      <button class="modal-close" onclick="closeModal('modal-deudores')">✕</button>
+    </div>
+    <div id="modal-deudores-body" style="padding:16px"></div>
+  </div>
+</div>
+
 <div class="modal-bg" id="modal-perfil">
   <div class="modal">
     <div class="modal-head">
@@ -1168,6 +1178,43 @@ const id = i => document.getElementById(i);
 
 // ─── DASHBOARD ───────────────────────────────────────────
 let chartDonut=null, chartBar=null, chartCashflow=null, chartGastosCat=null;
+
+function showDeudores(){
+  const deudores=db.ventas
+    .map(v=>({v, saldo:calcSaldoVenta(v.ID)}))
+    .filter(x=>x.saldo>5)
+    .sort((a,b)=>b.saldo-a.saldo);
+  if(!deudores.length){alert('No hay saldos pendientes 🎉');return;}
+  const filas=deudores.map(({v,saldo})=>`
+    <tr>
+      <td><b>${v.Lote}</b></td>
+      <td>${v.ClienteNombre}</td>
+      <td>${v.Fecha||'—'}</td>
+      <td>${usd(parseFloat(v.PrecioTotal||0))}</td>
+      <td style="color:var(--green);font-weight:700">${usd(parseFloat(v.PrecioTotal||0)-saldo)}</td>
+      <td style="color:var(--red);font-weight:700">${usd(saldo)}</td>
+    </tr>`).join('');
+  const total=deudores.reduce((s,x)=>s+x.saldo,0);
+  id('modal-deudores-body').innerHTML=`
+    <div style="overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="background:var(--light);font-size:11px;text-transform:uppercase;letter-spacing:.4px">
+        <th style="padding:8px 10px;text-align:left">Lote</th>
+        <th style="padding:8px 10px;text-align:left">Comprador</th>
+        <th style="padding:8px 10px;text-align:left">Fecha venta</th>
+        <th style="padding:8px 10px;text-align:right">Precio total</th>
+        <th style="padding:8px 10px;text-align:right">Cobrado</th>
+        <th style="padding:8px 10px;text-align:right">Saldo</th>
+      </tr></thead>
+      <tbody>${filas}</tbody>
+      <tfoot><tr style="background:var(--light);font-weight:700">
+        <td colspan="5" style="padding:8px 10px;text-align:right">Total por cobrar:</td>
+        <td style="padding:8px 10px;color:var(--red)">${usd(total)}</td>
+      </tr></tfoot>
+    </table></div>`;
+  openModal('modal-deudores');
+}
+
 function renderDashboard(){
   const hoy=new Date();hoy.setHours(0,0,0,0);
   const vendibles=db.terrenos.filter(t=>t.Estado!=='Área Verde');
@@ -1217,7 +1264,7 @@ function renderDashboard(){
     <div class="stat-card"><div class="label">Lotes Disponibles</div><div class="value">${disp}</div><div class="sub">de ${db.terrenos.length} totales</div></div>
     <div class="stat-card gold"><div class="label">Total Vendido</div><div class="value">${usd(totalVentaUSD)}</div><div class="sub">${vend} lote${vend!==1?'s':''} vendido${vend!==1?'s':''}</div></div>
     <div class="stat-card green"><div class="label">Total Cobrado</div><div class="value">${usd(totalCobradoUSD)}</div><div class="sub">Saldo contractual: ${usd(totalVentaUSD-totalCobradoUSD)}</div></div>
-    <div class="stat-card red"><div class="label">Gastos Totales</div><div class="value">${usd(totalGastosUSD)}</div><div class="sub">${cuotasVenc} venta${cuotasVenc!==1?'s':''} en atraso</div></div>
+    <div class="stat-card red"><div class="label">Gastos Totales</div><div class="value">${usd(totalGastosUSD)}</div><div class="sub">${db.gastos.length} gasto${db.gastos.length!==1?'s':''} registrados${cuotasVenc>0?' · '+cuotasVenc+' venta'+(cuotasVenc!==1?'s':'')+' en atraso':''}</div></div>
   </div>
 
   <div style="margin:0 0 6px"><span style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">📊 Situación Patrimonial</span></div>
@@ -1232,8 +1279,8 @@ function renderDashboard(){
       <div class="value">${usd(stockDisp)}</div>
       <div class="sub">${disp} lote${disp!==1?'s':''} sin vender</div>
     </div>
-    <div class="stat-card" style="--before-color:var(--navy)">
-      <div class="label">Por Cobrar (saldo real)</div>
+    <div class="stat-card" style="--before-color:var(--navy);cursor:pointer" onclick="showDeudores()" title="Ver detalle de deudores">
+      <div class="label">Por Cobrar (saldo real) 🔍</div>
       <div class="value">${usd(saldoPendiente)}</div>
       <div class="sub">${db.ventas.filter(v=>calcSaldoVenta(v.ID)>5).length} venta${db.ventas.filter(v=>calcSaldoVenta(v.ID)>5).length!==1?'s':''} con saldo pendiente</div>
     </div>
@@ -1727,20 +1774,23 @@ function abrirPerfil(i){
   const hoy=new Date();hoy.setHours(0,0,0,0);
   const totalComprado=ventasC.reduce((s,v)=>s+parseFloat(v.PrecioTotal||0),0);
   const totalPagado=cobranzasC.reduce((s,cb)=>s+parseFloat(cb.Monto||0),0);
-  // Si hay cuotas cargadas usamos su saldo; si no, calculamos directo del precio
-  const saldoCuotas=cuotasPend.reduce((s,q)=>s+parseFloat(q.Monto||0),0);
-  const saldoPend=saldoCuotas>0?saldoCuotas:Math.max(0,totalComprado-totalPagado);
-  const proxVenc=cuotasPend.filter(q=>q.FechaVenc).sort((a,b)=>new Date(a.FechaVenc)-new Date(b.FechaVenc))[0];
-  const cuotasVencidas=cuotasPend.filter(q=>q.FechaVenc&&new Date(q.FechaVenc+'T12:00:00')<hoy);
+  // Capa 1: saldo real siempre desde cobranzas
+  const saldoPend=Math.max(0,totalComprado-totalPagado);
+  // Cuotas pendientes solo para display visual (cosméticas)
+  const cuotasPendVis=saldoPend>5?cuotasPend:[];
+  const proxVenc=cuotasPendVis.filter(q=>q.FechaVenc).sort((a,b)=>new Date(a.FechaVenc)-new Date(b.FechaVenc))[0];
+  const cuotasVencidas=cuotasPendVis.filter(q=>q.FechaVenc&&new Date(q.FechaVenc+'T12:00:00')<hoy);
 
   // WhatsApp message
   let waMsg=`Hola ${c.Nombre}, te contactamos de ${getLoteoNombre()}.`;
-  if(cuotasVencidas.length>0){
-    waMsg+=` Tenés ${cuotasVencidas.length} cuota${cuotasVencidas.length!==1?'s':''} vencida${cuotasVencidas.length!==1?'s':''} por un total de U$S ${cuotasVencidas.reduce((s,q)=>s+parseFloat(q.Monto||0),0).toLocaleString('es-AR')}.`;
-  } else if(proxVenc){
-    waMsg+=` Tu próxima cuota vence el ${proxVenc.FechaVenc} por U$S ${parseFloat(proxVenc.Monto).toLocaleString('es-AR')}.`;
+  if(saldoPend>5){
+    if(cuotasVencidas.length>0){
+      waMsg+=` Tenés ${cuotasVencidas.length} cuota${cuotasVencidas.length!==1?'s':''} vencida${cuotasVencidas.length!==1?'s':''}.`;
+    } else if(proxVenc){
+      waMsg+=` Tu próxima cuota vence el ${proxVenc.FechaVenc} por U$S ${parseFloat(proxVenc.Monto).toLocaleString('es-AR')}.`;
+    }
+    waMsg+=` Tu saldo pendiente total es U$S ${saldoPend.toLocaleString('es-AR')}. ¡Muchas gracias!`;
   }
-  waMsg+=` Tu saldo pendiente total es U$S ${saldoPend.toLocaleString('es-AR')}. ¡Muchas gracias!`;
 
   const html=`
     <div class="perfil-header">
@@ -1777,9 +1827,10 @@ function abrirPerfil(i){
     </div>
 
     <div class="perfil-section">
-      <h4>Cuotas Pendientes (${cuotasPend.length})</h4>
-      ${cuotasPend.length?`<table class="perfil-table"><thead><tr><th>Lote</th><th>Cuota N°</th><th>Vencimiento</th><th>Monto</th><th>Estado</th><th>Días</th><th></th></tr></thead><tbody>
-        ${cuotasPend.sort((a,b)=>new Date(a.FechaVenc)-new Date(b.FechaVenc)).map(q=>{
+      <h4>Cuotas Pendientes (${cuotasPendVis.length})</h4>
+      ${saldoPend<=5?'<div class="empty" style="padding:10px">Sin cuotas pendientes 🎉</div>':
+        cuotasPendVis.length?`<table class="perfil-table"><thead><tr><th>Lote</th><th>Cuota N°</th><th>Vencimiento</th><th>Monto</th><th>Estado</th><th>Días</th><th></th></tr></thead><tbody>
+        ${cuotasPendVis.sort((a,b)=>new Date(a.FechaVenc)-new Date(b.FechaVenc)).map(q=>{
           const fv=new Date(q.FechaVenc+'T12:00:00');const vencida=fv<hoy;
           const dias=Math.abs(Math.round((hoy-fv)/(24*3600*1000)));
           return `<tr><td><b>${q.Lote}</b></td><td>${q.EsSena?'Seña':'N° '+q.Nro}</td><td>${q.FechaVenc}</td><td>${usd(q.Monto)}</td><td><span class="badge ${vencida?'badge-red':'badge-orange'}">${vencida?'Vencida':'Pendiente'}</span></td><td style="color:${vencida?'var(--red)':'var(--muted)'}">${vencida?`${dias}d atraso`:`en ${dias}d`}</td><td><button class="btn btn-green btn-sm role-write" onclick="openModalCobroForCuota('${q.ID}')">✓ Cobrar</button></td></tr>`;
