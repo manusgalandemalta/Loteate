@@ -1177,10 +1177,12 @@ function renderDashboard(){
   const totalVentaUSD=db.ventas.reduce((s,v)=>s+parseFloat(v.PrecioTotal||0),0);
   const totalCobradoUSD=db.cobranzas.reduce((s,c)=>s+parseFloat(c.Monto||0),0);
   const totalGastosUSD=db.gastos.reduce((s,g)=>s+parseFloat(g.Monto||0),0);
-  const cuotasVenc=db.cuotas.filter(c=>c.Estado!=='Pagada'&&c.FechaVenc&&new Date(c.FechaVenc)<hoy).length;
+  // Ventas en atraso (Capa 1: estado financiero por cobranzas)
+  const cuotasVenc=db.ventas.filter(v=>calcEstadoFinanciero(v.ID)==='atraso').length;
   // ── Patrimonio ──
   const stockDisp=vendibles.filter(t=>t.Estado==='Disponible').reduce((s,t)=>s+parseFloat(t.PrecioListaUSD||0),0);
-  const saldoPendiente=db.cuotas.filter(c=>c.Estado!=='Pagada').reduce((s,c)=>s+parseFloat(c.Monto||0),0);
+  // Saldo pendiente real = suma de (precio − cobrado) por venta (Capa 1)
+  const saldoPendiente=db.ventas.reduce((s,v)=>s+Math.max(0,calcSaldoVenta(v.ID)),0);
   const posNeta=totalCobradoUSD-totalGastosUSD;
   const posNetaClass=posNeta>=0?'green':'red';
   // ── Cashflow data ──
@@ -1373,14 +1375,21 @@ function renderCuotasAlert(){
 // así Terrenos y Ventas muestran siempre el mismo estado.
 function calcEstadoFinanciero(ventaID){
   if(!ventaID)return 'sinplan';
-  // Si saldo real < $5 (diferencias de redondeo), marcar como completo
-  if(calcSaldoVenta(ventaID)<5)return 'completo';
+  // ── CAPA 1: fuente de verdad = precio − cobranzas ──
+  const saldo=calcSaldoVenta(ventaID);
+  if(saldo<5)return 'completo';
+  // ── CAPA 2: atraso/proceso según plan de cuotas (cosmético) ──
   const hoy=new Date();hoy.setHours(0,0,0,0);
   const cuotas=db.cuotas.filter(c=>c.VentaID===ventaID);
   if(!cuotas.length)return 'sinplan';
-  if(cuotas.every(c=>c.Estado==='Pagada'))return 'completo';
-  const hayVencida=cuotas.some(c=>c.Estado!=='Pagada'&&c.FechaVenc&&new Date(c.FechaVenc+'T12:00:00')<hoy);
-  return hayVencida?'atraso':'proceso';
+  // Cuánto debía haberse cobrado hasta hoy según el plan
+  const debidoHasta=cuotas.filter(c=>c.FechaVenc&&new Date(c.FechaVenc+'T12:00:00')<=hoy)
+    .reduce((s,c)=>s+parseFloat(c.Monto||0),0);
+  const totalCobrado=db.cobranzas.filter(c=>c.VentaID===ventaID)
+    .reduce((s,c)=>s+parseFloat(c.Monto||0),0);
+  // Si lo cobrado no cubre lo que debía pagarse hasta hoy → atraso
+  if(totalCobrado<debidoHasta-5)return 'atraso';
+  return 'proceso';
 }
 const ESTADO_FINANCIERO_MAP={
   completo:{label:'✅ Pago completo',cls:'badge-green'},
