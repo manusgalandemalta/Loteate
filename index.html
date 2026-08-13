@@ -1332,7 +1332,7 @@ const usd = v => v?`U$S ${parseFloat(v).toLocaleString('es-AR',{minimumFractionD
 const id = i => document.getElementById(i);
 
 // ─── DASHBOARD ───────────────────────────────────────────
-let chartDonut=null, chartBar=null, chartCashflow=null, chartGastosCat=null;
+let chartDonut=null, chartBar=null, chartCashflow=null, chartGastosCat=null, chartVentasMes=null;
 
 function showDeudores(){
   const deudores=db.ventas
@@ -1393,7 +1393,12 @@ function renderDashboard(){
   db.cobranzas.forEach(c=>c.Fecha&&cfSet.add(c.Fecha.substring(0,7)));
   db.gastos.forEach(g=>g.Fecha&&cfSet.add(g.Fecha.substring(0,7)));
   db.cuotas.filter(c=>c.Estado!=='Pagada'&&c.FechaVenc).forEach(c=>cfSet.add(c.FechaVenc.substring(0,7)));
+  db.ventas.forEach(v=>v.Fecha&&cfSet.add(v.Fecha.substring(0,7)));
   const cfMonths=[...cfSet].sort();
+  // ── Datos ventas por mes (misma escala que cashflow) ──
+  const ventaUSD=cfMonths.map(m=>db.ventas.filter(v=>v.Fecha&&v.Fecha.substring(0,7)===m).reduce((s,v)=>s+parseFloat(v.PrecioTotal||0),0));
+  const ventaLotes=cfMonths.map(m=>db.ventas.filter(v=>v.Fecha&&v.Fecha.substring(0,7)===m).length);
+  const ventaM2=cfMonths.map(m=>db.ventas.filter(v=>v.Fecha&&v.Fecha.substring(0,7)===m).reduce((s,v)=>{const t=db.terrenos.find(t=>t.Lote===v.Lote);return s+parseFloat((t&&t.M2)||0);},0));
   const cfIng=cfMonths.map(m=>db.cobranzas.filter(c=>c.Fecha&&c.Fecha.substring(0,7)===m).reduce((s,c)=>s+parseFloat(c.Monto||0),0));
   const cfEgr=cfMonths.map(m=>db.gastos.filter(g=>g.Fecha&&g.Fecha.substring(0,7)===m).reduce((s,g)=>s+parseFloat(g.Monto||0),0));
   const cfProj=cfMonths.map(m=>db.cuotas.filter(c=>c.Estado!=='Pagada'&&c.FechaVenc&&c.FechaVenc.substring(0,7)===m).reduce((s,c)=>s+parseFloat(c.Monto||0),0));
@@ -1450,6 +1455,18 @@ function renderDashboard(){
     <div class="chart-card"><h3>🗺️ Estado de Lotes</h3><canvas id="chart-donut"></canvas></div>
     <div class="chart-card"><h3>🧾 Gastos por Categoría</h3><canvas id="chart-gastos-cat"></canvas></div>
   </div>
+  <div class="chart-card" style="margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <h3 style="margin:0">🏗️ Evolución de Ventas por Mes</h3>
+      <div style="display:flex;gap:16px;font-size:11px;flex-wrap:wrap;align-items:center">
+        <span><span style="display:inline-block;width:12px;height:12px;background:#1A3A5C;border-radius:2px;margin-right:4px;vertical-align:middle"></span>USD vendidos</span>
+        <span><span style="display:inline-block;width:12px;height:3px;background:#C9A84C;margin-right:4px;vertical-align:middle;border-radius:1px"></span>Lotes</span>
+        <span><span style="display:inline-block;width:12px;height:3px;background:#27AE60;margin-right:4px;vertical-align:middle;border-radius:1px;border-top:2px dashed #27AE60;background:transparent"></span>m²</span>
+      </div>
+    </div>
+    <canvas id="chart-ventas-mes" style="max-height:220px"></canvas>
+    ${db.ventas.length===0?'<div class="empty" style="padding:20px">Sin ventas registradas aún</div>':''}
+  </div>
   <div class="chart-card" style="margin-bottom:24px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
       <h3 style="margin:0">📈 Cashflow — Ingresos / Egresos / Posición Acumulada</h3>
@@ -1486,6 +1503,98 @@ function renderDashboard(){
         backgroundColor:catColors.slice(0,gastoCatKeys.length),borderWidth:0}]},
       options:{plugins:{legend:{position:'bottom',labels:{font:{size:10},padding:8,boxWidth:12}},
         tooltip:{callbacks:{label:ctx=>`${usd(ctx.parsed)}`}}},cutout:'60%'}});
+  }
+
+  // ── Ventas por mes (barras + líneas) ──
+  if(chartVentasMes) chartVentasMes.destroy();
+  if(cfMonths.length&&db.ventas.length){
+    const mn2l=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+    const cfLabelsV=cfMonths.map(k=>{const[y,m]=k.split('-');return `${mn2l[parseInt(m)-1]} ${y.slice(2)}`;});
+    chartVentasMes=new Chart(id('chart-ventas-mes'),{
+      type:'bar',
+      data:{
+        labels:cfLabelsV,
+        datasets:[
+          {
+            type:'bar',
+            label:'USD vendidos',
+            data:ventaUSD,
+            backgroundColor:'rgba(26,58,92,0.72)',
+            borderColor:'#1A3A5C',
+            borderWidth:1,
+            borderRadius:4,
+            yAxisID:'y',
+            order:3
+          },
+          {
+            type:'line',
+            label:'m² vendidos',
+            data:ventaM2,
+            borderColor:'#27AE60',
+            backgroundColor:'transparent',
+            borderWidth:2,
+            borderDash:[5,3],
+            pointRadius:4,pointBackgroundColor:'#27AE60',
+            tension:0.3,
+            yAxisID:'y2',
+            order:1
+          },
+          {
+            type:'line',
+            label:'Lotes vendidos',
+            data:ventaLotes,
+            borderColor:'#C9A84C',
+            backgroundColor:'rgba(201,168,76,0.12)',
+            borderWidth:2.5,
+            pointRadius:5,pointBackgroundColor:'#C9A84C',
+            tension:0.3,
+            yAxisID:'y3',
+            order:2
+          }
+        ]
+      },
+      options:{
+        interaction:{mode:'index',intersect:false},
+        plugins:{
+          legend:{display:false},
+          tooltip:{callbacks:{
+            label:ctx=>{
+              if(ctx.dataset.yAxisID==='y')return `USD: ${usd(ctx.parsed.y)}`;
+              if(ctx.dataset.yAxisID==='y2')return `m²: ${ctx.parsed.y.toLocaleString('es-AR',{maximumFractionDigits:0})}`;
+              return `Lotes: ${ctx.parsed.y}`;
+            }
+          }}
+        },
+        scales:{
+          x:{grid:{display:false},ticks:{font:{size:10}}},
+          y:{
+            position:'left',
+            ticks:{callback:v=>v>=1000?'U$S '+(v/1000).toFixed(0)+'k':'U$S '+v,font:{size:10}},
+            grid:{color:'rgba(0,0,0,0.05)'},
+            beginAtZero:true,
+            title:{display:true,text:'USD',font:{size:10},color:'#1A3A5C'}
+          },
+          y2:{
+            position:'right',
+            ticks:{font:{size:10},stepSize:500},
+            grid:{display:false},
+            beginAtZero:true,
+            title:{display:true,text:'m²',font:{size:10},color:'#27AE60'},
+            display:ventaM2.some(v=>v>0)
+          },
+          y3:{
+            position:'right',
+            ticks:{stepSize:1,font:{size:10}},
+            grid:{display:false},
+            beginAtZero:true,
+            title:{display:true,text:'Lotes',font:{size:10},color:'#C9A84C'},
+            offset:true,
+            display:false  // oculto — la info ya está en el tooltip
+          }
+        },
+        responsive:true,maintainAspectRatio:true
+      }
+    });
   }
 
   // ── Cashflow multi-line ──
