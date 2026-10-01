@@ -2430,6 +2430,20 @@ const DESARROLLADOR_DEFAULTS = {
     jurisdiccionTexto:'los Tribunales Ordinarios de la IV Circunscripción Judicial de la Provincia del Neuquén, con asiento en la ciudad de Junín de los Andes',
     loteoUbicacion:'San Martín de los Andes, Neuquén',
     boletoTemplate:'',
+  },
+  3: { // Balconada 4
+    titulares:[
+      {nombre:'Marcelo Ariel Galan de Malta', dni:'14.944.542'},
+    ],
+    domicilio:'Ruta 62 km 8 Lolog, ciudad de San Martín de los Andes, Provincia de Neuquén',
+    ciudad:'San Martín de los Andes', provincia:'Neuquén',
+    departamento:'Lacar', superficieM2:'', nomenclaturaCatastral:'15-21-091-6092',
+    fraccionamiento:'LOTE A4-4',
+    agrimensor:'Fernando Lagazzi',
+    escrituraTexto:'ante el Registro Notarial que designe la parte Vendedora. "EL VENDEDOR" notificará mediante Carta Documento el día y lugar de escrituración, identificando al escribano designado, con una antelación de veinticinco (25) días corridos a la fecha de escrituración',
+    jurisdiccionTexto:'los Tribunales Ordinarios de la IV Circunscripción Judicial de la Provincia del Neuquén, con asiento en la ciudad de Junín de los Andes',
+    loteoUbicacion:'San Martín de los Andes, Neuquén',
+    boletoTemplate:'__B4__',
   }
 };
 function getDesarrollador(){
@@ -2453,6 +2467,35 @@ function buildFirmasDesarrollador(d){
 function renderTemplate(tpl,data){
   return tpl.replace(/\{\{(\w+)\}\}/g,(m,k)=>Object.prototype.hasOwnProperty.call(data,k)?(data[k]??''):m);
 }
+const BOLETO_TEMPLATE_B4=`<h2 style="text-align:center;font-size:16px;font-weight:900;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">BOLETO DE COMPRA VENTA</h2>
+<p style="margin-bottom:16px">En la ciudad de {{CIUDAD}}, Provincia de {{PROVINCIA}}, a los <b>{{FECHA_ENCABEZADO}}</b>, entre, por una parte {{VENDEDORES_DESC}}, en adelante la parte <b>VENDEDORA</b> o indistintamente <b>EL DESARROLLADOR</b>, por una parte y por la otra {{COMPRADOR_DESC}}, en adelante denominado/a como <b>"EL COMPRADOR"</b> y en tal carácter convienen en celebrar el presente Boleto de compra venta de una futura unidad Funcional que se regirá por las siguientes cláusulas y condiciones:</p>
+<div class="cla">PRIMERA:</div>
+<p>El DESARROLLADOR, VENDE, CEDE y TRANSFIERE Una (1) fracción de terreno indiviso y a subdividir de aproximadamente <b>{{SUPERFICIE_LOTE_TEXTO}} ({{SUPERFICIE_LOTE_M2}} mts²)</b> o lo que más o en menos surja de la mensura definitiva. Los metros que adquiere el COMPRADOR forman parte de la fracción mayor <b>{{FRACCIONAMIENTO}}</b>, Nomenclatura Catastral de origen N° <b>{{NOMENCLATURA_CATASTRAL}}</b> a subdividir en <b>Treinta y cuatro (34)</b> futuras unidades funcionales, siendo la parte Vendida identificada comercialmente como futura <b>UF{{LOTE}}</b> correspondiente al proyecto de subdivisión confeccionado por el Agrimensor <b>{{AGRIMENSOR}}</b> que se adjunta al presente BOLETO de COMPRA VENTA y que firmado por las partes forman un único documento identificado como ANEXO "1".</p>
+<p>El DESARROLLADOR acuerda con el COMPRADOR y este así acepta que la Futura unidad Funcional objeto del presente contrato posee un <b>treinta por ciento (30%)</b> de F.O.S para la construcción de una vivienda unifamiliar, como así también el COMPRADOR acepta expresamente las obligaciones que se especifican en las "Condiciones de Venta" que se consideran parte integrante de este boleto de compraventa y se adjunta al presente como Anexo "2" y que están destinadas a asegurar el carácter residencial de la zona en el que están ubicadas la futura Fracción de terreno objeto de la presente venta.</p>
+<div class="cla">SEGUNDA:</div>
+{{SEGUNDA_CLAUSULA_B4}}
+<div class="cla">TERCERA: LUGAR DE PAGO</div>
+<p>Las partes acuerdan como lugar de pago el domicilio del VENDEDOR, Ruta 62 km 8 Lolog de la ciudad de San Martín de los Andes.</p>
+<div class="cla">CUARTA: MONEDA DE PAGO</div>
+<p>Es condición ineludible de esta operación que se realice en Dólares BILLETES Estadounidenses. En tal sentido el COMPRADOR declara conocer la inestabilidad del mercado cambiario local e internacional, las regulaciones vigentes emanadas de la Administración Federal de Ingresos Públicos (AFIP), el Banco Central de la República Argentina (BCRA) y otros organismos dependientes del Poder Ejecutivo Nacional y haber sido debidamente asesorado por profesionales de su confianza en cuanto a las eventuales consecuencias y riesgos de pactar un precio en moneda extranjera. Renuncia por ello a invocar en el futuro la teoría de la imprevisión, lesión enorme y/o cualquier otra teoría o norma para intentar liberarse de cumplir con su obligación en la moneda pactada. Si el pago en DOLARES BILLETES ESTADOUNIDENSES no pudiera ser realizado por restricciones gubernamentales en el control de cambios, leyes, reglamentaciones y/o órdenes administrativas, las partes acuerdan que el COMPRADOR, podrá hacerlo en cualquier otra moneda a conformidad del VENDEDOR.</p>
+<div class="cla">QUINTA: MORA. PENALIDADES POR INCUMPLIMIENTO</div>
+<p>En caso de incumplimiento de alguna de las partes, será de aplicación lo siguiente a favor de la cumplidora: a) El comprador podrá optar entre: a.a) exigir el cumplimiento del contrato más daños y perjuicios correspondientes o a.b) resolver el presente contrato y exigir al vendedor la devolución de las sumas entregadas, como así otro tanto por los daños y perjuicios emergentes del incumplimiento; b) el vendedor podrá optar entre b.b) exigir el cumplimiento del contrato más daños y perjuicios correspondientes o b.b) resolver el presente contrato de pleno derecho y quedarse con las sumas que hubiere recibido, pudiendo disponer de inmediato de la porción indivisa vendida para lo cual bastará la sola invocación del art. 1204 del Código Civil, comunicando la resolución.</p>
+<div class="cla">SEXTA:</div>
+<p>El VENDEDOR declara: a) Que los derechos y acciones que en este acto dispone se encuentran libres de todo gravamen, que no existe inhibición para disponer de las porciones indivisas objeto del presente contrato y que el inmueble, no reconoce embargos, hipotecas, ni gravamen o interdicción alguna.</p>
+<div class="cla">SÉPTIMA: POSESIÓN</div>
+<p>Las partes Acuerdan que la posesión de la futura unidad funcional objeto del presente contrato será entregada a la parte COMPRADORA una vez finalizadas las obras de infraestructura por parte del DESARROLLADOR quien se compromete a entregar las unidades resultantes con las redes de Agua, luz y cloacas terminadas, quedando a cargo de la parte compradora las conexiones domiciliarias. Siendo que los servicios de Agua y Cloacas serán prestados y medidos por la COOPERATIVA DE AGUA POTABLE y OTROS SERVICIOS PÚBLICOS de SAN MARTÍN DE LOS ANDES quien colocará en el tanque cisterna de abastecimiento ubicado en el "LOTE A4-5" un macro medidor cuyo consumo será abonado mediante el pago de expensas. Queda establecido que la futura unidad funcional que resulte del presente contrato será destinada a VIVIENDA UNIFAMILIAR con las limitaciones que surjan del reglamento de copropiedad y administración y en un todo de acuerdo con el mismo.</p>
+<div class="cla">OCTAVA: REGLAMENTO DE COPROPIEDAD Y ADMINISTRACIÓN Y REGLAMENTO INTERNO DE CONVIVENCIA</div>
+<p>El COMPRADOR acepta y toma conocimiento que EL DESARROLLADOR se reserva el derecho de redactar el reglamento de copropiedad y administración definitivo. Asimismo el DESARROLLADOR se reserva el derecho de reglamentar entre otras materias la contratación del personal suficiente para el mantenimiento, conservación, funcionamiento y vigilancia del emprendimiento como así establecer las servidumbres de paso para los servicios si fuese necesario o asegurar la libre circulación de los vehículos. EL COMPRADOR se obliga a cumplir y respetar el reglamento de copropiedad y administración con sus futuras altas y modificaciones cuya redacción final como se dijo se encomienda en forma irrestricta e irrevocable al EL DESARROLLADOR.</p>
+<p>En iguales condiciones es atributo exclusivo y esencial del DESARROLLADOR el dictado del reglamento interno de convivencia.</p>
+<div class="cla">NOVENA:</div>
+<p>La escritura traslativa de dominio de la porción indivisa objeto del presente contrato será otorgada {{ESCRITURA_TEXTO}}, siendo los gastos, impuestos y honorarios de la confección del reglamento de copropiedad y de la escritura traslativa de dominio a cargo de las partes en la proporción de estilo según las costumbres locales.</p>
+<p>Las Partes Acuerdan que la no comparecencia a escriturar una vez notificado el COMPRADOR en el tiempo estipulado, dará derecho al VENDEDOR a cobrar una multa diaria de <b>Dólares Billetes Estadounidenses Cincuenta (U$S 50.-)</b>.</p>
+<div class="cla">DÉCIMA: CESIÓN DE DERECHOS</div>
+<p>En caso que EL COMPRADOR proceda a la cesión del presente boleto ya sea en forma parcial o total, esta deberá ser en los mismos términos y condiciones del presente, obligándose a comunicarle al DESARROLLADOR la cesión realizada quien deberá prestar su conformidad.</p>
+<div class="cla">DÉCIMOPRIMERA:</div>
+<p>Para todos los efectos judiciales y/o extrajudiciales derivados del presente contrato, las partes se someten al fuero y jurisdicción de {{JURISDICCION_TEXTO}}, renunciando a todo otro fuero o Jurisdicción que pudiera corresponderles. Asimismo, constituyen Domicilios Especiales, en los lugares citados "ut supra" de la presente.</p>
+<p style="margin-top:20px">En prueba de Conformidad, las partes proceden a firmar y ratificar el contenido del presente contrato, en dos ejemplares de un mismo tenor y a un solo efecto a los <b>{{FECHA_ENCABEZADO}}</b>.</p>
+<div class="firmas" style="grid-template-columns:repeat({{FIRMAS_COLS}},1fr)">{{FIRMAS_DESARROLLADOR}}{{FIRMAS_COMPRADOR}}</div>`;
 const DEFAULT_BOLETO_TEMPLATE=`<h2>Boleto de Compra Venta</h2>
 <h3>Unidad Funcional {{LOTE}}</h3>
 <p>En la ciudad de {{CIUDAD}}, Provincia de {{PROVINCIA}}, a los <b>{{FECHA_ENCABEZADO}}</b>, entre, por una parte:</p>
@@ -2526,6 +2569,16 @@ function showBoleto(i){
   })();
   const firmasComprador=`<div><div class="firma-line">${cliente?`${cliente.Nombre.toUpperCase()} ${cliente.Apellido.toUpperCase()}<br>DNI: ${cliente.DNI}`:'COMPRADOR/A<br>DNI: ___'}</div></div>`;
 
+  // ── Cláusula Segunda B4: adapta contado vs cuotas ──
+  const esContado=saldo<=0.01||parseInt(v.NCuotas||0)===0;
+  const segundaClausulaB4=esContado
+    ?`<p>Las partes realizan la presente operación por la suma Única, Total y Convenida de <b>Dólares Billetes Estadounidenses ${numToWords(parseFloat(v.PrecioTotal)).toUpperCase()} (U$S ${formatUSD(v.PrecioTotal)}.-)</b> suma que es abonada por El COMPRADOR al VENDEDOR en éste mismo acto, en dinero efectivo. EL DESARROLLADOR recibe de plena conformidad otorgando por medio del presente suficiente recibo y carta de pago en legal forma.</p>`
+    :`<p>Las partes realizan la presente operación por la suma Única, Total y Convenida de <b>Dólares Billetes Estadounidenses ${numToWords(parseFloat(v.PrecioTotal)).toUpperCase()} (U$S ${formatUSD(v.PrecioTotal)}.-)</b>, suma que es abonada por El COMPRADOR al VENDEDOR de la siguiente manera:</p>
+<p>a) <b>Dólares Billetes Estadounidenses ${numToWords(parseFloat(v.Sena)).toUpperCase()} (U$S ${formatUSD(v.Sena)}.-)</b> en concepto de Seña/Adelanto, en este mismo acto, en dinero efectivo que EL DESARROLLADOR recibe de plena conformidad otorgando suficiente recibo y carta de pago.</p>
+<p>b) El saldo, o sea <b>Dólares Billetes Estadounidenses ${numToWords(saldo).toUpperCase()} (U$S ${formatUSD(saldo)}.-)</b>, EL/LA COMPRADOR/A se obliga a abonarlos en <b>${v.NCuotas} (${numCuotasWords(parseInt(v.NCuotas)).toUpperCase()}) cuotas mensuales y consecutivas</b>, venciendo la primera el <b>${primeraCuota?fechaES(primeraCuota.FechaVenc):'___'}</b> y la última el <b>${ultimaCuota?fechaES(ultimaCuota.FechaVenc):'___'}</b>, de acuerdo al siguiente plan de pagos:</p>
+${tablaCuotas}
+<p>La falta de pago de una (1) o más cuotas dejará al COMPRADOR en mora automática, sin necesidad de interpelación judicial o extrajudicial.</p>`;
+
   const merge={
     LOTE:v.Lote,
     CIUDAD:d.ciudad||'___', PROVINCIA:d.provincia||'___',
@@ -2556,8 +2609,11 @@ function showBoleto(i){
     FIRMAS_DESARROLLADOR:buildFirmasDesarrollador(d),
     FIRMAS_COMPRADOR:firmasComprador,
     FIRMAS_COLS:(titularesValidos.length||1)+1,
+    SEGUNDA_CLAUSULA_B4:segundaClausulaB4,
   };
-  const tpl=d.boletoTemplate||DEFAULT_BOLETO_TEMPLATE;
+  // Selección de plantilla: Balconada 4 usa su plantilla específica
+  const tplB4=(d.boletoTemplate==='__B4__')||(!d.boletoTemplate&&currentLoteoId===3);
+  const tpl=tplB4?BOLETO_TEMPLATE_B4:(d.boletoTemplate&&d.boletoTemplate!=='__B4__'?d.boletoTemplate:DEFAULT_BOLETO_TEMPLATE);
   const html=renderTemplate(tpl,merge);
 
   id('boleto-content').innerHTML=html;
