@@ -1070,7 +1070,11 @@ async function loadFromSupabase(){
   db.terrenos=(t.data||[]).map(sbToTerreno);
   db.clientes=(cl.data||[]).map(sbToCliente);
   db.ventas=(v.data||[]).map(sbToVenta);
-  db.cuotas=(cu.data||[]).map(sbToCuota);
+  // Deduplicar cuotas por (VentaID + Nro): si hay duplicados en DB, queda el de menor ID
+  const _cuotasRaw=(cu.data||[]).map(sbToCuota);
+  const _cuotasMap=new Map();
+  _cuotasRaw.forEach(c=>{const k=`${c.VentaID}_${c.Nro}`;if(!_cuotasMap.has(k)||c.ID<_cuotasMap.get(k).ID)_cuotasMap.set(k,c);});
+  db.cuotas=[..._cuotasMap.values()];
   db.cobranzas=(co.data||[]).map(sbToCobro);
   db.gastos=(g.data||[]).map(sbToGasto);
   if(cfg.data)db.config=sbToConfig(cfg.data);
@@ -2839,6 +2843,7 @@ function openModalGasto(){
   openModal('modal-gasto');
 }
 function openModalCobro(){
+  reconciliarTodasVentas(); // asegura estado fresco antes de mostrar cuotas
   fillSociosSelect('cb-socio');
   id('cobro-modal-title').textContent='Registrar Cobro';
   id('cb-editing-id').value='';
@@ -3005,17 +3010,42 @@ function imprimirRecibo(){
   w.document.close();
   setTimeout(()=>{w.print();},400);
 }
-function descargarRecibo(){
+async function descargarRecibo(){
   if(!reciboActual)return;
   const nro=String(reciboActual.NroRecibo).padStart(4,'0');
   const lote=(reciboActual.Lote||'').replace(/[^a-zA-Z0-9]/g,'');
-  const html=`<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Recibo ${nro}</title><style>${_reciboA4CSS()}</style></head><body><div style="padding:8px">${_reciboContenidoActual()}</div></body></html>`;
-  const blob=new Blob([html],{type:'text/html'});
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download=`Recibo_${nro}_Lote${lote}.html`;
-  a.click();
-  URL.revokeObjectURL(a.href);
+  const filename=`Recibo_${nro}_Lote${lote}.pdf`;
+  showToast('⏳ Generando PDF…');
+  // Cargar html2pdf lazy (requiere conexión, igual que Supabase)
+  if(!window.html2pdf){
+    const ok=await new Promise(res=>{
+      const s=document.createElement('script');
+      s.src='https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+      s.onload=()=>res(true);s.onerror=()=>res(false);
+      document.head.appendChild(s);
+    });
+    if(!ok){imprimirRecibo();showToast('⚠️ Sin conexión para PDF. Usá Imprimir → Guardar como PDF','err');return;}
+  }
+  const div=document.createElement('div');
+  div.style.cssText='position:fixed;left:-9999px;top:0;width:170mm';
+  div.innerHTML=`<style>${_reciboA4CSS()}</style><div>${_reciboContenidoActual()}</div>`;
+  document.body.appendChild(div);
+  const opt={margin:[15,15,15,15],filename,image:{type:'jpeg',quality:0.98},html2canvas:{scale:2,useCORS:true},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'}};
+  // showSaveFilePicker: deja elegir carpeta (Chrome/Edge)
+  if(window.showSaveFilePicker){
+    try{
+      const blob=await html2pdf().set(opt).from(div).outputPdf('blob');
+      document.body.removeChild(div);
+      const handle=await window.showSaveFilePicker({suggestedName:filename,types:[{description:'PDF',accept:{'application/pdf':['.pdf']}}]});
+      const w=await handle.createWritable();await w.write(blob);await w.close();
+      showToast('✅ PDF guardado');return;
+    }catch(e){
+      if(document.body.contains(div))document.body.removeChild(div);
+      if(e.name==='AbortError')return;
+    }
+  }
+  // Fallback: descarga directa
+  html2pdf().set(opt).from(div).save().then(()=>{if(document.body.contains(div))document.body.removeChild(div);showToast('✅ PDF descargado');});
 }
 function showRecibo(i){
   reciboActual = db.cobranzas[i];
@@ -4019,6 +4049,15 @@ function renderPosicion(){
   }).join('');
 
   id('content').innerHTML=`
+  <!-- SOCIOS -->
+  <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:12px;display:flex;align-items:center;gap:6px">
+    <span>👥</span> Posición por Socio
+    <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:4px">aportes = gastos pagados · retiros = cobros recibidos</span>
+  </div>
+  <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:28px">
+    ${socioCards}
+  </div>
+
   <!-- CAJA DEL LOTEO -->
   <div class="chart-card" style="margin-bottom:24px;border-left:5px solid ${saldoCaja>=0?'var(--green)':'var(--red)'}">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
@@ -4050,15 +4089,6 @@ function renderPosicion(){
         <div style="font-size:11px;color:var(--muted)">todos los ingresos − todos los gastos</div>
       </div>
     </div>
-  </div>
-
-  <!-- SOCIOS -->
-  <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:12px;display:flex;align-items:center;gap:6px">
-    <span>👥</span> Posición por Socio
-    <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:4px">aportes = gastos pagados · retiros = cobros recibidos</span>
-  </div>
-  <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:24px">
-    ${socioCards}
   </div>`;
 }
 
