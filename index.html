@@ -90,15 +90,15 @@ textarea{resize:vertical;min-height:70px}
 canvas{max-height:200px}
 
 /* RECIBO MODAL */
-#modal-recibo .modal{width:560px}
-.rcpt{font-family:'Arial',sans-serif;background:#fff;border:2px solid #222;border-radius:4px;padding:28px 32px}
+#modal-recibo .modal{width:500px}
+.rcpt{font-family:'Courier New',monospace;background:#fff;border:2px solid #222;border-radius:4px;padding:28px 32px}
 .rcpt[contenteditable="true"]{outline:2px dashed var(--gold);cursor:text}
-.rcpt-title{text-align:center;font-size:18px;font-weight:900;letter-spacing:2px;margin-bottom:4px;color:#000}
-.rcpt-sub{text-align:center;font-size:13px;color:#000;border-bottom:2px dashed #aaa;padding-bottom:12px;margin-bottom:16px}
-.rcpt-row{display:flex;justify-content:space-between;font-size:14px;margin-bottom:10px;gap:8px;padding-bottom:6px;border-bottom:1px solid #eee}
-.rcpt-row b{white-space:nowrap;color:#000;font-weight:700}
-.rcpt-total{display:flex;justify-content:space-between;font-size:18px;font-weight:900;border-top:3px solid #000;padding-top:12px;margin-top:16px;color:#000}
-.rcpt-firma{margin-top:40px;text-align:center;border-top:1px dashed #aaa;font-size:12px;padding-top:10px;color:#888}
+.rcpt-title{text-align:center;font-size:15px;font-weight:700;letter-spacing:1px;margin-bottom:4px;color:#000}
+.rcpt-sub{text-align:center;font-size:11px;color:#000;border-bottom:1px dashed #aaa;padding-bottom:10px;margin-bottom:14px}
+.rcpt-row{display:flex;justify-content:space-between;font-size:12px;margin-bottom:7px;gap:8px}
+.rcpt-row b{white-space:nowrap;color:#000}
+.rcpt-total{display:flex;justify-content:space-between;font-size:14px;font-weight:700;border-top:2px solid #000;padding-top:10px;margin-top:14px;color:#000}
+.rcpt-firma{margin-top:36px;text-align:center;border-top:1px dashed #aaa;font-size:11px;padding-top:8px;color:#888}
 .mail-status{font-size:12px;padding:8px 12px;border-radius:6px;margin-top:10px;display:none}
 .mail-status.ok{background:#D5F5E3;color:#1E8449;display:block}
 .mail-status.err{background:#FADBD8;color:#C0392B;display:block}
@@ -462,8 +462,9 @@ input[required-mark]::placeholder::after{content:' *';color:var(--red)}
         <div class="form-group"><label>Identificador de Lote</label><input id="t-lote" placeholder="Ej: A-1, Lote 5..."></div>
         <div class="form-group"><label>Superficie (M²)</label><input id="t-m2" type="number" placeholder="0.00"></div>
         <div class="form-group"><label>Estado</label>
-          <select id="t-estado"><option>Disponible</option><option>Reservado</option><option>Vendido</option><option>Área Verde</option></select>
+          <select id="t-estado" onchange="id('t-reserva-row').style.display=this.value==='Reservado'?'':'none'"><option>Disponible</option><option>Reservado</option><option>Vendido</option><option>Área Verde</option></select>
         </div>
+        <div class="form-group" id="t-reserva-row" style="display:none"><label>Nombre / Referencia reserva</label><input id="t-reserva-cliente" placeholder="ej. Juan Pérez"></div>
         <div class="form-group"><label>Precio Lista (USD)</label><input id="t-precio" type="number" placeholder="0"></div>
         <div class="form-group"><label>Estado Boleto</label>
           <select id="t-boleto"><option value="">—</option><option>Por firmar</option><option>Firmado</option></select>
@@ -1840,6 +1841,7 @@ function openNuevoLote(){
   id('t-m2').value='';id('t-m2').readOnly=false;id('t-m2').style.background='';
   id('t-estado').value='Disponible';id('t-precio').value='';
   id('t-boleto').value='';id('t-escritura').value='';id('t-obs').value='';
+  id('t-reserva-row').style.display='none';id('t-reserva-cliente').value='';
   openModal('modal-terreno');
 }
 function editTerreno(i){
@@ -1848,6 +1850,9 @@ function editTerreno(i){
   id('t-lote').value=t.Lote;id('t-lote').readOnly=true;id('t-lote').style.background='#F8FAFC';
   id('t-m2').value=t.M2;id('t-m2').readOnly=true;id('t-m2').style.background='#F8FAFC';
   id('t-estado').value=t.Estado;
+  const isResv=t.Estado==='Reservado';
+  id('t-reserva-row').style.display=isResv?'':'none';
+  id('t-reserva-cliente').value=isResv?(t.Cliente||''):'';
   id('t-precio').value=t.PrecioListaUSD||'';id('t-boleto').value=t.EstadoBoleto||'';
   id('t-escritura').value=t.EstadoEscritura||'';id('t-obs').value=t.Observaciones||'';
   openModal('modal-terreno');
@@ -1859,14 +1864,19 @@ function saveTerrenoEdit(){
     // Nuevo lote
     if(!lote){alert('El identificador de lote es obligatorio.');return;}
     if(db.terrenos.find(t=>t.Lote===lote)){alert(`Ya existe el lote "${lote}".`);return;}
-    terreno={Lote:lote,M2:m2,Estado:id('t-estado').value,
+    const nuevoEstado=id('t-estado').value;
+    const nombreResv=(id('t-reserva-cliente').value||'').trim();
+    terreno={Lote:lote,M2:m2,Estado:nuevoEstado,
       PrecioListaUSD:id('t-precio').value,PrecioVentaUSD:'',PrecioM2USD:'',
-      Cliente:'',FechaVenta:'',EstadoBoleto:id('t-boleto').value,
+      Cliente:nuevoEstado==='Reservado'?nombreResv:'',FechaVenta:'',EstadoBoleto:id('t-boleto').value,
       EstadoEscritura:id('t-escritura').value,Observaciones:id('t-obs').value};
     db.terrenos.push(terreno);
   } else {
     terreno=db.terrenos[editingTerrenoIdx];
-    terreno.Estado=id('t-estado').value;terreno.PrecioListaUSD=id('t-precio').value;
+    const nuevoEstado=id('t-estado').value;
+    const nombreResv=(id('t-reserva-cliente').value||'').trim();
+    if(nuevoEstado==='Reservado'&&nombreResv) terreno.Cliente=nombreResv;
+    terreno.Estado=nuevoEstado;terreno.PrecioListaUSD=id('t-precio').value;
     terreno.EstadoBoleto=id('t-boleto').value;terreno.EstadoEscritura=id('t-escritura').value;
     terreno.Observaciones=id('t-obs').value;
   }
@@ -2719,7 +2729,7 @@ function renderCobranzas(){
     const i=db.cobranzas.indexOf(c);
     return`<tr>
     <td><b>N° ${c.NroRecibo}</b></td><td>${c.Fecha}</td><td><b>${c.Lote}</b></td>
-    <td>${c.ClienteNombre}</td><td>${c.Concepto}</td><td>${usd(c.Monto)}</td>
+    <td>${_resolverNombreCliente(c)}</td><td>${c.Concepto}</td><td>${usd(c.Monto)}</td>
     <td><span class="badge badge-blue">${c.Medio}</span></td>
     <td><span class="badge badge-gold">${c.Socio||'—'}</span></td>
     <td style="display:flex;gap:4px">
