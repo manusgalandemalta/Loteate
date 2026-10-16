@@ -348,6 +348,10 @@ input[required-mark]::placeholder::after{content:' *';color:var(--red)}
     <div class="sub">Gestión de Loteos — Acceso privado</div>
     <input id="login-email" type="email" placeholder="Email" autocomplete="username">
     <input id="login-pwd" type="password" placeholder="Contraseña" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+    <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);margin-bottom:4px;cursor:pointer;text-align:left">
+      <input id="login-remember" type="checkbox" checked style="width:auto;margin:0">
+      Recordarme en este dispositivo
+    </label>
     <button class="btn-login" onclick="doLogin()">Ingresar</button>
     <div class="login-err" id="login-err"></div>
   </div>
@@ -899,7 +903,7 @@ const TERRENOS_FILE_ID = '14vr4P_0i-ur7uLnHgy0NZ15FxMIecy_yFOiTpHAgw6k';
 // ─── SUPABASE ────────────────────────────────────────────
 const SB_URL = 'https://qtmomxtlomhrlmamfxxm.supabase.co';
 const SB_KEY = 'sb_publishable_XgoYUgGXL_qpsKtDh4OLpg_NWLOA-tr';
-const sb = window.supabase.createClient(SB_URL, SB_KEY);
+const sb = window.supabase.createClient(SB_URL, SB_KEY, {auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}});
 
 // Toast de notificación
 let _toastTimer=null;
@@ -1259,7 +1263,8 @@ async function doLogin(){
   const errEl=document.getElementById('login-err');
   errEl.textContent='';
   if(!email||!pwd){errEl.textContent='Completá email y contraseña.';return;}
-  const {data,error}=await sb.auth.signInWithPassword({email,password:pwd});
+  const recordar=document.getElementById('login-remember')?.checked!==false;
+  const {data,error}=await sb.auth.signInWithPassword({email,password:pwd,options:{persistSession:recordar}});
   if(error){errEl.textContent='❌ '+error.message;return;}
   currentUser=data.user;
   const profile=await fetchProfile(currentUser.id);
@@ -4048,6 +4053,35 @@ function renderPosicion(){
     </div>`;
   }).join('');
 
+  // ── Calcular transferencias de balanceo entre socios ──
+  const _posArr=socios.map(s=>({nombre:s.nombre,neto:sp[s.nombre].neto}));
+  const _creds=_posArr.filter(p=>p.neto>0.5).map(p=>({...p})).sort((a,b)=>b.neto-a.neto);
+  const _debts=_posArr.filter(p=>p.neto<-0.5).map(p=>({...p,neto:-p.neto})).sort((a,b)=>b.neto-a.neto);
+  const _transfers=[];
+  let ci=0,di=0;
+  while(ci<_creds.length&&di<_debts.length){
+    const amt=Math.min(_creds[ci].neto,_debts[di].neto);
+    if(amt>0.5)_transfers.push({from:_debts[di].nombre,to:_creds[ci].nombre,amt});
+    _creds[ci].neto-=amt;_debts[di].neto-=amt;
+    if(_creds[ci].neto<0.5)ci++;
+    if(_debts[di].neto<0.5)di++;
+  }
+  const balanceoHTML=_transfers.length===0
+    ?`<div style="display:flex;align-items:center;gap:10px;padding:14px 18px;background:rgba(39,174,96,.08);border-radius:12px;border:1px solid rgba(39,174,96,.25)">
+        <span style="font-size:22px">✅</span>
+        <div style="font-size:14px;font-weight:600;color:var(--green)">Los socios están equilibrados — no hay transferencias pendientes</div>
+      </div>`
+    :_transfers.map(t=>`
+      <div style="display:flex;align-items:center;gap:12px;padding:14px 20px;background:#fff;border-radius:12px;border:1px solid var(--border);box-shadow:0 1px 4px rgba(0,0,0,.06)">
+        <div style="font-size:15px;font-weight:700;color:var(--navy);min-width:80px">${t.from}</div>
+        <div style="flex:1;text-align:center">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:2px">debe transferir</div>
+          <div style="font-size:22px;font-weight:900;color:var(--red)">${usd(t.amt)}</div>
+        </div>
+        <div style="font-size:20px">➡️</div>
+        <div style="font-size:15px;font-weight:700;color:var(--navy);min-width:80px;text-align:right">${t.to}</div>
+      </div>`).join('');
+
   id('content').innerHTML=`
   <!-- SOCIOS -->
   <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:12px;display:flex;align-items:center;gap:6px">
@@ -4056,6 +4090,16 @@ function renderPosicion(){
   </div>
   <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:28px">
     ${socioCards}
+  </div>
+
+  <!-- BALANCEO -->
+  <div class="chart-card" style="margin-bottom:24px;border-left:5px solid ${_transfers.length?'var(--red)':'var(--green)'}">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+      <span style="font-size:22px">⚖️</span>
+      <div style="font-size:16px;font-weight:800;color:var(--navy)">Balanceo entre Socios</div>
+      <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:4px">para igualar posiciones netas</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px">${balanceoHTML}</div>
   </div>
 
   <!-- CAJA DEL LOTEO -->
