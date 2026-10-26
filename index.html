@@ -231,6 +231,7 @@ input[required-mark]::placeholder::after{content:' *';color:var(--red)}
 #mob-more-sheet{display:none}
 
 @media(max-width:768px){
+  .hide-m{display:none!important}
   /* ── Layout base ── */
   body{flex-direction:column;height:100dvh;overflow:hidden}
   #sidebar{display:none}
@@ -348,10 +349,6 @@ input[required-mark]::placeholder::after{content:' *';color:var(--red)}
     <div class="sub">Gestión de Loteos — Acceso privado</div>
     <input id="login-email" type="email" placeholder="Email" autocomplete="username">
     <input id="login-pwd" type="password" placeholder="Contraseña" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
-    <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);margin-bottom:4px;cursor:pointer;text-align:left">
-      <input id="login-remember" type="checkbox" checked style="width:auto;margin:0">
-      Recordarme en este dispositivo
-    </label>
     <button class="btn-login" onclick="doLogin()">Ingresar</button>
     <div class="login-err" id="login-err"></div>
   </div>
@@ -814,9 +811,10 @@ input[required-mark]::placeholder::after{content:' *';color:var(--red)}
 
 <div class="modal-bg" id="modal-gasto">
   <div class="modal">
-    <div class="modal-head"><h3>Registrar Gasto</h3><button class="modal-close" onclick="closeModal('modal-gasto')">✕</button></div>
+    <div class="modal-head"><h3 id="gasto-modal-title">Registrar Gasto</h3><button class="modal-close" onclick="closeModal('modal-gasto')">✕</button></div>
     <div class="modal-body">
       <div class="form-grid">
+        <input type="hidden" id="g-editing-idx" value="-1">
         <div class="form-group"><label>Fecha</label><input id="g-fecha" type="date"></div>
         <div class="form-group"><label>Monto (USD)</label><input id="g-monto" type="number" placeholder="0"></div>
         <div class="form-group full"><label>Concepto</label><input id="g-concepto"></div>
@@ -903,14 +901,21 @@ const TERRENOS_FILE_ID = '14vr4P_0i-ur7uLnHgy0NZ15FxMIecy_yFOiTpHAgw6k';
 // ─── SUPABASE ────────────────────────────────────────────
 const SB_URL = 'https://qtmomxtlomhrlmamfxxm.supabase.co';
 const SB_KEY = 'sb_publishable_XgoYUgGXL_qpsKtDh4OLpg_NWLOA-tr';
-const sb = window.supabase.createClient(SB_URL, SB_KEY, {auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}});
+const sb = window.supabase.createClient(SB_URL, SB_KEY);
+
+// ─── Escape de HTML / JS / URL para todo dato cargado por usuarios ──────────
+function esc(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+// Para usar dentro de onclick="fn(${escJs(x)})" (atributo entre comillas dobles)
+function escJs(v){return esc(JSON.stringify(String(v==null?'':v)));}
+// Solo deja pasar links http(s); evita javascript: en href
+function safeUrl(u){u=String(u||'').trim();return /^https?:\/\//i.test(u)?u:'';}
 
 // Toast de notificación
 let _toastTimer=null;
 function showToast(msg,type='ok'){
   const t=document.getElementById('sb-toast');
   t.textContent=msg;t.className='show '+(type==='err'?'err':'ok');
-  clearTimeout(_toastTimer);_toastTimer=setTimeout(()=>t.className='',3000);
+  clearTimeout(_toastTimer);_toastTimer=setTimeout(()=>t.className='',type==='err'?8000:3000);
 }
 function setSbStatus(s){
   const el=document.getElementById('sb-status');if(!el)return;
@@ -991,9 +996,18 @@ function reconciliarTodasVentas(){
   const vids=[...new Set(db.cuotas.map(c=>c.VentaID).concat(db.cobranzas.map(c=>c.VentaID)))];
   vids.forEach(vid=>vid&&reconciliarVenta(vid));
 }
-function syncCuotasReconciliadas(ventaID){
+async function syncCuotasReconciliadas(ventaID){
   const cuotas=db.cuotas.filter(c=>c.VentaID===ventaID);
-  if(cuotas.length) sb.from('cuotas').upsert(cuotas.map(cuotaToSB));
+  if(!cuotas.length)return true;
+  try{
+    const {error}=await sb.from('cuotas').upsert(cuotas.map(cuotaToSB));
+    if(error)throw error;
+    return true;
+  }catch(e){
+    console.error('syncCuotasReconciliadas',e);
+    showToast('⚠️ No se pudo guardar el estado de las cuotas. Sincronizá y reintentá.','err');
+    return false;
+  }
 }
 
 // ─── ESTADO DE CUENTA MODAL ──────────────────────────────
@@ -1018,15 +1032,15 @@ function showEstadoCuenta(ventaID){
   const filasC=cuotas.map(c=>`<tr>
     <td>${c.EsSena?'🔑 Seña/Adelanto':'N° '+c.Nro}</td>
     <td>${usd(c.Monto)}</td>
-    <td style="color:var(--muted)">${c.FechaVenc||'—'}</td>
+    <td style="color:var(--muted)">${esc(c.FechaVenc||'—')}</td>
     <td>${estadoBadge(c)}</td>
     <td style="color:${parseFloat(c._cubierto||0)>0?'var(--green)':'var(--muted)'}">${parseFloat(c._cubierto||0)>0?usd(c._cubierto):'—'}</td>
     <td style="color:var(--red)">${c.Estado!=='Pagada'?usd(parseFloat(c.Monto||0)-parseFloat(c._cubierto||0)):'—'}</td>
   </tr>`).join('');
   const filasCobros=cobros.length?cobros.map(c=>`<tr>
-    <td>${c.Fecha}</td><td>N° ${String(c.NroRecibo).padStart(4,'0')}</td>
-    <td>${c.Concepto}</td><td style="font-weight:700;color:var(--green)">${usd(c.Monto)}</td>
-    <td><span class="badge badge-blue">${c.Medio}</span></td>
+    <td>${esc(c.Fecha)}</td><td>N° ${String(c.NroRecibo).padStart(4,'0')}</td>
+    <td>${esc(c.Concepto)}</td><td style="font-weight:700;color:var(--green)">${usd(c.Monto)}</td>
+    <td><span class="badge badge-blue">${esc(c.Medio)}</span></td>
   </tr>`).join(''):`<tr><td colspan="5" class="empty">Sin cobros registrados aún</td></tr>`;
 
   id('ec-title').textContent=`📋 Estado de Cuenta — Lote ${v.Lote} — ${v.ClienteNombre}`;
@@ -1058,19 +1072,35 @@ function showEstadoCuenta(ventaID){
   openModal('modal-estado-cuenta');
 }
 
+// Trae TODAS las filas de una consulta paginando de a 1000 (tope por defecto de PostgREST).
+// mk() debe devolver un builder NUEVO y ordenado por una columna estable en cada llamada.
+async function fetchAllRows(mk){
+  const PAGE=1000, out=[];
+  for(let from=0;;from+=PAGE){
+    const r=await mk().range(from,from+PAGE-1);
+    if(r.error)return {data:null,error:r.error};
+    const rows=r.data||[];
+    out.push(...rows);
+    if(rows.length<PAGE)break;
+  }
+  return {data:out,error:null};
+}
 // Cargar todo desde Supabase
 async function loadFromSupabase(){
   setSbStatus('loading');
+  const L=currentLoteoId;
   const [t,cl,v,cu,co,g,cfg]=await Promise.all([
-    sb.from('terrenos').select('*').eq('loteo_id',currentLoteoId).order('lote'),
-    sb.from('clientes').select('*').eq('loteo_id',currentLoteoId).order('apellido'),
-    sb.from('ventas').select('*').eq('loteo_id',currentLoteoId).is('deleted_at',null).order('id'),
-    sb.from('cuotas').select('*').eq('loteo_id',currentLoteoId),
-    sb.from('cobranzas').select('*').eq('loteo_id',currentLoteoId).is('deleted_at',null).order('nro_recibo'),
-    sb.from('gastos').select('*').eq('loteo_id',currentLoteoId).is('deleted_at',null).order('id'),
-    sb.from('config').select('*').eq('loteo_id',currentLoteoId).maybeSingle(),
+    fetchAllRows(()=>sb.from('terrenos').select('*').eq('loteo_id',L).order('lote').order('id')),
+    fetchAllRows(()=>sb.from('clientes').select('*').eq('loteo_id',L).order('apellido').order('id')),
+    fetchAllRows(()=>sb.from('ventas').select('*').eq('loteo_id',L).is('deleted_at',null).order('id')),
+    fetchAllRows(()=>sb.from('cuotas').select('*').eq('loteo_id',L).order('id')),
+    fetchAllRows(()=>sb.from('cobranzas').select('*').eq('loteo_id',L).is('deleted_at',null).order('nro_recibo').order('id')),
+    fetchAllRows(()=>sb.from('gastos').select('*').eq('loteo_id',L).is('deleted_at',null).order('id')),
+    sb.from('config').select('*').eq('loteo_id',L).maybeSingle(),
   ]);
-  if(t.error){setSbStatus('offline');showToast('No se pudo conectar con Supabase','err');return false;}
+  // Si falla CUALQUIER tabla no se carga nada a medias: evita trabajar con datos incompletos.
+  const _fail=[['terrenos',t],['clientes',cl],['ventas',v],['cuotas',cu],['cobranzas',co],['gastos',g]].find(([,r])=>r.error);
+  if(_fail){setSbStatus('offline');console.error('loadFromSupabase',_fail[0],_fail[1].error);showToast('No se pudo cargar '+_fail[0]+' desde Supabase','err');return false;}
   db.terrenos=(t.data||[]).map(sbToTerreno);
   db.clientes=(cl.data||[]).map(sbToCliente);
   db.ventas=(v.data||[]).map(sbToVenta);
@@ -1147,8 +1177,14 @@ function getLoteoNombre(){return userLoteos.find(l=>l.id===currentLoteoId)?.nomb
 function fillSociosSelect(selectId){
   const el=document.getElementById(selectId);
   if(!el)return;
-  el.innerHTML=getSocios().map(s=>`<option>${s.nombre}</option>`).join('')+'<option>Caja del Loteo</option>';
+  el.innerHTML=getSocios().map(s=>`<option>${esc(s.nombre)}</option>`).join('')+'<option>Caja del Loteo</option>';
 }
+
+// Los renders pesados corren con índices temporales (ver _withIdx)
+['renderDashboard','renderTerrenos','renderVentas','renderClientes','renderCobranzas','renderGastos','renderCuotasAlert'].forEach(n=>{
+  const f=window[n];if(typeof f!=='function')return;
+  window[n]=function(){const a=arguments,t=this;return _withIdx(()=>f.apply(t,a));};
+});
 const db = { terrenos:[], clientes:[], ventas:[], cuotas:[], cobranzas:[], gastos:[], config:{metrosComprados:0,valorTierra:0,fechaInicio:'',planoBase64:'',desarrollador:null} };
 let editingTerrenoIdx = -1;
 let nextCobroId = 1;
@@ -1220,10 +1256,10 @@ async function loadUserLoteos(){
 function showLoteoSelector(){
   const grid=document.getElementById('loteo-sel-grid');
   grid.innerHTML=userLoteos.map(l=>`
-    <div class="loteo-card" onclick="selectLoteo(${l.id},'${l.nombre.replace(/'/g,"\\'")}')">
+    <div class="loteo-card" onclick="selectLoteo(${Number(l.id)},${escJs(l.nombre)})">
       <div class="lc-icon">🏔️</div>
-      <div class="lc-name">${l.nombre}</div>
-      <div class="lc-desc">${l.descripcion}</div>
+      <div class="lc-name">${esc(l.nombre)}</div>
+      <div class="lc-desc">${esc(l.descripcion)}</div>
       <span class="lc-rol">${l.rol}</span>
     </div>`).join('');
   document.getElementById('loteo-selector').classList.remove('hidden');
@@ -1263,8 +1299,7 @@ async function doLogin(){
   const errEl=document.getElementById('login-err');
   errEl.textContent='';
   if(!email||!pwd){errEl.textContent='Completá email y contraseña.';return;}
-  const recordar=document.getElementById('login-remember')?.checked!==false;
-  const {data,error}=await sb.auth.signInWithPassword({email,password:pwd,options:{persistSession:recordar}});
+  const {data,error}=await sb.auth.signInWithPassword({email,password:pwd});
   if(error){errEl.textContent='❌ '+error.message;return;}
   currentUser=data.user;
   const profile=await fetchProfile(currentUser.id);
@@ -1372,9 +1407,9 @@ function showDeudores(){
   if(!deudores.length){alert('No hay saldos pendientes 🎉');return;}
   const filas=deudores.map(({v,saldo})=>`
     <tr>
-      <td><b>${v.Lote}</b></td>
-      <td>${v.ClienteNombre}</td>
-      <td>${v.Fecha||'—'}</td>
+      <td><b>${esc(v.Lote)}</b></td>
+      <td>${esc(v.ClienteNombre)}</td>
+      <td>${esc(v.Fecha||'—')}</td>
       <td>${usd(parseFloat(v.PrecioTotal||0))}</td>
       <td style="color:var(--green);font-weight:700">${usd(parseFloat(v.PrecioTotal||0)-saldo)}</td>
       <td style="color:var(--red);font-weight:700">${usd(saldo)}</td>
@@ -1706,30 +1741,55 @@ function renderCuotasAlert(){
     }).sort((a,b)=>new Date(a.FechaVenc)-new Date(b.FechaVenc)).slice(0,20);
   if(!rows.length) return `<tr><td colspan="7" class="empty">Sin alertas pendientes 🎉</td></tr>`;
   return rows.map(c=>{
-    const venta=db.ventas.find(v=>v.ID===c.VentaID)||{};
+    const venta=_ventaDe(c.VentaID)||{};
     const fv=new Date(c.FechaVenc);fv.setHours(0,0,0,0);
     const dias=Math.round((hoy-fv)/(24*3600*1000));const vencida=dias>0;
-    return `<tr><td><b>${venta.Lote||'—'}</b></td><td>${venta.ClienteNombre||'—'}</td><td>${c.EsSena?'Seña/Adelanto':'N° '+c.Nro}</td><td>${c.FechaVenc}</td><td>${usd(c.Monto)}</td><td><span class="badge ${vencida?'badge-red':'badge-orange'}">${vencida?'Vencida':'Por vencer'}</span></td><td>${vencida?dias+' días':'—'}</td></tr>`;
+    return `<tr><td><b>${esc(venta.Lote||'—')}</b></td><td>${esc(venta.ClienteNombre||'—')}</td><td>${c.EsSena?'Seña/Adelanto':'N° '+c.Nro}</td><td>${esc(c.FechaVenc)}</td><td>${usd(c.Monto)}</td><td><span class="badge ${vencida?'badge-red':'badge-orange'}">${vencida?'Vencida':'Por vencer'}</span></td><td>${vencida?dias+' días':'—'}</td></tr>`;
   }).join('');
 }
 
 // ─── ESTADO FINANCIERO (compartido entre Terrenos y Ventas) ─
 // Se calcula siempre a partir de las cuotas — nunca se guarda a mano,
 // así Terrenos y Ventas muestran siempre el mismo estado.
+// ─── Índices temporales (solo viven durante un render) ──────────────────
+// Evitan recorrer todas las cuotas/cobros por cada fila (O(n²) con 1.000+ lotes).
+let _IDX=null;
+function _buildIdx(){
+  const ventaById=new Map(),ventaByLote=new Map(),ventaIdx=new Map(),cobrado=new Map(),cuotasBy=new Map(),clienteById=new Map(),terrByLote=new Map(),ventasPorCliente=new Map();
+  db.ventas.forEach((v,i)=>{ventaById.set(v.ID,v);if(!ventaByLote.has(v.Lote))ventaByLote.set(v.Lote,v);ventaIdx.set(v,i);ventasPorCliente.set(v.ClienteID,(ventasPorCliente.get(v.ClienteID)||0)+1);});
+  db.cobranzas.forEach(c=>cobrado.set(c.VentaID,(cobrado.get(c.VentaID)||0)+parseFloat(c.Monto||0)));
+  db.cuotas.forEach(c=>{let a=cuotasBy.get(c.VentaID);if(!a)cuotasBy.set(c.VentaID,a=[]);a.push(c);});
+  db.clientes.forEach(c=>clienteById.set(c.ID,c));
+  db.terrenos.forEach(t=>{if(!terrByLote.has(t.Lote))terrByLote.set(t.Lote,t);});
+  return {ventaById,ventaByLote,ventaIdx,cobrado,cuotasBy,clienteById,terrByLote,ventasPorCliente,estado:new Map()};
+}
+function _withIdx(fn){const prev=_IDX;_IDX=_buildIdx();try{return fn();}finally{_IDX=prev;}}
+function _ventaDe(ventaID){return _IDX?_IDX.ventaById.get(ventaID):db.ventas.find(v=>v.ID===ventaID);}
+function _cobradoDe(ventaID){return _IDX?(_IDX.cobrado.get(ventaID)||0):db.cobranzas.filter(c=>c.VentaID===ventaID).reduce((s,c)=>s+parseFloat(c.Monto||0),0);}
+function _cuotasDe(ventaID){return _IDX?(_IDX.cuotasBy.get(ventaID)||[]):db.cuotas.filter(c=>c.VentaID===ventaID);}
+// Debounce simple para buscadores
+const _debT={};
+function _deb(fn,ms=180){clearTimeout(_debT[fn.name]);_debT[fn.name]=setTimeout(()=>fn(),ms);}
+
 function calcEstadoFinanciero(ventaID){
+  if(_IDX&&_IDX.estado.has(ventaID))return _IDX.estado.get(ventaID);
+  const res=_calcEstadoFinanciero(ventaID);
+  if(_IDX)_IDX.estado.set(ventaID,res);
+  return res;
+}
+function _calcEstadoFinanciero(ventaID){
   if(!ventaID)return 'sinplan';
   // ── CAPA 1: fuente de verdad = precio − cobranzas ──
   const saldo=calcSaldoVenta(ventaID);
   if(saldo<5)return 'completo';
   // ── CAPA 2: atraso/proceso según plan de cuotas (cosmético) ──
   const hoy=new Date();hoy.setHours(0,0,0,0);
-  const cuotas=db.cuotas.filter(c=>c.VentaID===ventaID);
+  const cuotas=_cuotasDe(ventaID);
   if(!cuotas.length)return 'sinplan';
   // Cuánto debía haberse cobrado hasta hoy según el plan
   const debidoHasta=cuotas.filter(c=>c.FechaVenc&&new Date(c.FechaVenc+'T12:00:00')<=hoy)
     .reduce((s,c)=>s+parseFloat(c.Monto||0),0);
-  const totalCobrado=db.cobranzas.filter(c=>c.VentaID===ventaID)
-    .reduce((s,c)=>s+parseFloat(c.Monto||0),0);
+  const totalCobrado=_cobradoDe(ventaID);
   // Si lo cobrado no cubre lo que debía pagarse hasta hoy → atraso
   if(totalCobrado<debidoHasta-5)return 'atraso';
   return 'proceso';
@@ -1746,7 +1806,7 @@ function estadoFinancieroBadge(tag){
 }
 function estadoFinancieroDeLote(t){
   if(t.Estado!=='Vendido')return null;
-  const venta=db.ventas.find(v=>v.Lote===t.Lote);
+  const venta=_IDX?_IDX.ventaByLote.get(t.Lote):db.ventas.find(v=>v.Lote===t.Lote);
   return calcEstadoFinanciero(venta?venta.ID:null);
 }
 
@@ -1816,19 +1876,19 @@ function renderTerrenos(filtroComercial,filtroFinanciero){
     const i=db.terrenos.indexOf(t);
     const fin=estadoFinancieroDeLote(t);
     let accionEstado='';
-    if(t.Estado==='Disponible')accionEstado=`<button class="btn btn-outline btn-sm role-write" onclick="openModalReserva('${t.Lote}')" title="Reservar lote">📌 Reservar</button>`;
-    else if(t.Estado==='Reservado')accionEstado=`<button class="btn btn-outline btn-sm role-write" onclick="setEstadoComercial('${t.Lote}','Disponible')" title="Liberar reserva">↩️ Liberar</button>`;
+    if(t.Estado==='Disponible')accionEstado=`<button class="btn btn-outline btn-sm role-write" onclick="openModalReserva(${escJs(t.Lote)})" title="Reservar lote">📌 Reservar</button>`;
+    else if(t.Estado==='Reservado')accionEstado=`<button class="btn btn-outline btn-sm role-write" onclick="setEstadoComercial(${escJs(t.Lote)},'Disponible')" title="Liberar reserva">↩️ Liberar</button>`;
     return `<tr>
-    <td><b>${t.Lote}</b></td><td>${parseFloat(t.M2).toLocaleString('es-AR')} m²</td>
-    <td><span class="badge ${estados[t.Estado]||'badge-gray'}">${t.Estado}</span></td>
+    <td><b>${esc(t.Lote)}</b></td><td>${parseFloat(t.M2).toLocaleString('es-AR')} m²</td>
+    <td><span class="badge ${estados[t.Estado]||'badge-gray'}">${esc(t.Estado)}</span></td>
     <td>${fin?estadoFinancieroBadge(fin):'—'}</td>
     <td>${t.PrecioListaUSD?usd(t.PrecioListaUSD):'—'}</td>
     <td>${t.PrecioVentaUSD?usd(t.PrecioVentaUSD):'—'}</td>
     <td>${t.PrecioM2USD?usd(t.PrecioM2USD):'—'}</td>
-    <td>${t.Cliente||'—'}</td><td>${t.FechaVenta||'—'}</td>
-    <td>${t.EstadoBoleto?`<span class="badge ${t.EstadoBoleto==='Firmado'?'badge-green':'badge-orange'}">${t.EstadoBoleto}</span>`:'—'}</td>
-    <td>${t.EstadoEscritura?`<span class="badge ${t.EstadoEscritura==='Escriturado'?'badge-green':'badge-blue'}">${t.EstadoEscritura}</span>`:'—'}</td>
-    <td style="max-width:150px;font-size:11px;color:var(--muted)">${t.Observaciones||''}</td>
+    <td>${esc(t.Cliente||'—')}</td><td>${t.FechaVenta||'—'}</td>
+    <td>${t.EstadoBoleto?`<span class="badge ${t.EstadoBoleto==='Firmado'?'badge-green':'badge-orange'}">${esc(t.EstadoBoleto)}</span>`:'—'}</td>
+    <td>${t.EstadoEscritura?`<span class="badge ${t.EstadoEscritura==='Escriturado'?'badge-green':'badge-blue'}">${esc(t.EstadoEscritura)}</span>`:'—'}</td>
+    <td style="max-width:150px;font-size:11px;color:var(--muted)">${esc(t.Observaciones||'')}</td>
     <td style="display:flex;gap:4px">${accionEstado}<button class="btn btn-outline btn-sm role-admin" onclick="editTerreno(${i})">✏️</button></td>
   </tr>`;}).join('');
   const emptyMsg=db.terrenos.length===0?`<div class="alert alert-info" style="margin-bottom:16px">No hay lotes cargados aún. Usá <b>Nuevo Lote</b> para cargar uno por uno, o <b>Importar CSV</b> para cargar varios de una vez.</div>`:'';
@@ -1928,7 +1988,7 @@ function previewCsvImport(){
   <div style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:7px">
   <table style="width:100%;font-size:12px"><thead><tr style="background:#F8FAFC"><th style="padding:6px 10px">Lote</th><th style="padding:6px 10px">M²</th><th style="padding:6px 10px">Estado</th><th style="padding:6px 10px">Precio Lista</th></tr></thead><tbody>`;
   rows.forEach(r=>{const dup=db.terrenos.find(t=>t.Lote===r.Lote);
-    html+=`<tr style="${dup?'background:#FEF9E7':''}"><td style="padding:5px 10px"><b>${r.Lote}</b>${dup?' <span style="color:var(--orange);font-size:10px">actualiza</span>':''}</td><td style="padding:5px 10px">${r.M2}</td><td style="padding:5px 10px">${r.Estado}</td><td style="padding:5px 10px">${r.PrecioListaUSD||'—'}</td></tr>`;
+    html+=`<tr style="${dup?'background:#FEF9E7':''}"><td style="padding:5px 10px"><b>${esc(r.Lote)}</b>${dup?' <span style="color:var(--orange);font-size:10px">actualiza</span>':''}</td><td style="padding:5px 10px">${esc(r.M2)}</td><td style="padding:5px 10px">${esc(r.Estado)}</td><td style="padding:5px 10px">${r.PrecioListaUSD||'—'}</td></tr>`;
   });
   html+=`</tbody></table></div>`;
   id('csv-preview').innerHTML=html;
@@ -1965,14 +2025,15 @@ async function confirmCsvImport(){
 // ─── CLIENTES ────────────────────────────────────────────
 function renderClientes(){
   const q=_busqClientes.toLowerCase().trim();
+  const _ixCli=new Map(db.clientes.map((c,i)=>[c,i]));
   const lista=q?db.clientes.filter(c=>(c.Apellido+' '+c.Nombre).toLowerCase().includes(q)||(c.Nombre+' '+c.Apellido).toLowerCase().includes(q)||(c.DNI||'').includes(q)):db.clientes;
   const rows=lista.length?lista.map(c=>{
-    const i=db.clientes.indexOf(c);
-    const vc=db.ventas.filter(v=>v.ClienteID===c.ID).length;
-    return `<tr><td><b>${c.Apellido}, ${c.Nombre}</b></td><td>${c.DNI}</td><td>${c.CUIL||'—'}</td>
-    <td>${c.Domicilio||'—'}${c.Ciudad?`, ${c.Ciudad}`:''}</td><td>${c.Mail||'—'}</td><td>${c.Tel||'—'}</td>
+    const i=_ixCli.get(c);
+    const vc=_IDX.ventasPorCliente.get(c.ID)||0;
+    return `<tr><td><b>${esc(c.Apellido)}, ${esc(c.Nombre)}</b></td><td>${esc(c.DNI)}</td><td>${esc(c.CUIL||'—')}</td>
+    <td>${esc(c.Domicilio||'—')}${c.Ciudad?`, ${esc(c.Ciudad)}`:''}</td><td>${esc(c.Mail||'—')}</td><td>${esc(c.Tel||'—')}</td>
     <td><span class="badge badge-blue">${vc} lote${vc!==1?'s':''}</span></td>
-    <td>${c.EstadoCivil||'—'}</td>
+    <td>${esc(c.EstadoCivil||'—')}</td>
     <td>${c.FotoDNI?`<a href="${c.FotoDNI}" target="_blank" class="btn btn-outline btn-sm">📎 DNI</a>`:'—'}</td>
     <td style="display:flex;gap:4px">
       <button class="btn btn-primary btn-sm" onclick="abrirPerfil(${i})" title="Ver historial completo">👤 Perfil</button>
@@ -1981,7 +2042,7 @@ function renderClientes(){
     </td></tr>`;
   }).join(''):`<tr><td colspan="10" class="empty">${q?'Sin resultados para "'+q+'"':'Sin clientes registrados.'}</td></tr>`;
   id('content').innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:10px">
-  <input id="busq-cli" type="text" placeholder="🔍 Buscar por nombre o DNI..." value="${_busqClientes.replace(/"/g,'&quot;')}" oninput="_busqClientes=this.value;renderClientes()" style="flex:1;max-width:340px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px">
+  <input id="busq-cli" type="text" placeholder="🔍 Buscar por nombre o DNI..." value="${esc(_busqClientes)}" oninput="_busqClientes=this.value;_deb(renderClientes)" style="flex:1;max-width:340px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px">
   <button class="btn btn-primary role-write" onclick="openModal('modal-cliente');resetClienteForm()">+ Nuevo Cliente</button></div>
   <div class="table-wrap"><div class="table-header"><h3>Clientes (${lista.length}${q?' de '+db.clientes.length:''})</h3></div>
   <table><thead><tr><th>Nombre</th><th>DNI</th><th>CUIL</th><th>Domicilio</th><th>Mail</th><th>Teléfono</th><th>Lotes</th><th>Estado Civil</th><th>DNI</th><th></th></tr></thead>
@@ -2011,6 +2072,10 @@ function saveCliente(){
     ok=false;
   }
   if(!ok)return;
+  const _idxEd=parseInt(id('c-editing-idx').value);
+  const _dniNorm=s=>String(s||'').replace(/\D/g,'');
+  const _dup=db.clientes.find((c,k)=>k!==_idxEd&&_dniNorm(c.DNI)&&_dniNorm(c.DNI)===_dniNorm(dni));
+  if(_dup&&!confirm('⚠️ Ya existe un cliente con ese DNI: '+_dup.Apellido+', '+_dup.Nombre+'.\n\n¿Querés guardarlo igual?'))return;
   const datos={Nombre:nombre,Apellido:apellido,DNI:dni,CUIL:id('c-cuil').value,
     Domicilio:id('c-domicilio').value,Ciudad:id('c-ciudad').value,Provincia:id('c-provincia').value,
     Nacionalidad:id('c-nac').value||'argentino/a',EstadoCivil:id('c-ecivil').value,
@@ -2041,6 +2106,9 @@ function editCliente(i){
   openModal('modal-cliente');
 }
 function deleteCliente(i){
+  const c0=db.clientes[i];
+  const nVentas=db.ventas.filter(v=>v.ClienteID===c0.ID).length;
+  if(nVentas>0){alert('No se puede eliminar: este cliente tiene '+nVentas+' venta(s) registrada(s).\n\nPrimero eliminá o reasigná sus ventas.');return;}
   if(!confirm('¿Eliminar cliente?'))return;
   const c=db.clientes[i];
   db.clientes.splice(i,1);
@@ -2115,14 +2183,14 @@ function abrirPerfil(i){
 
   const html=`
     <div class="perfil-header">
-      <div class="perfil-avatar">${c.Nombre[0]}${c.Apellido[0]}</div>
+      <div class="perfil-avatar">${esc((c.Nombre||'')[0]||'')}${esc((c.Apellido||'')[0]||'')}</div>
       <div>
-        <div class="perfil-name">${c.Apellido}, ${c.Nombre}</div>
-        <div class="perfil-meta">DNI ${c.DNI}${c.CUIL?` · CUIL ${c.CUIL}`:''}${c.EstadoCivil?` · ${c.EstadoCivil}`:''}${c.Conyuge&&c.EstadoCivil==='Casado/a'?` · Cónyuge: ${c.Conyuge}`:''}</div>
-        <div class="perfil-meta">${c.Domicilio||''}${c.Ciudad?`, ${c.Ciudad}`:''}${c.Provincia?`, ${c.Provincia}`:''}</div>
+        <div class="perfil-name">${esc(c.Apellido)}, ${esc(c.Nombre)}</div>
+        <div class="perfil-meta">DNI ${esc(c.DNI)}${c.CUIL?` · CUIL ${esc(c.CUIL)}`:''}${c.EstadoCivil?` · ${esc(c.EstadoCivil)}`:''}${c.Conyuge&&c.EstadoCivil==='Casado/a'?` · Cónyuge: ${esc(c.Conyuge)}`:''}</div>
+        <div class="perfil-meta">${esc(c.Domicilio||'')}${c.Ciudad?`, ${esc(c.Ciudad)}`:''}${c.Provincia?`, ${esc(c.Provincia)}`:''}</div>
         <div class="perfil-meta" style="margin-top:6px;display:flex;gap:12px;align-items:center">
-          ${c.Mail?`<span>✉️ ${c.Mail}</span>`:''}
-          ${c.Tel?`<span>📞 ${c.Tel}</span>`:''}
+          ${c.Mail?`<span>✉️ ${esc(c.Mail)}</span>`:''}
+          ${c.Tel?`<span>📞 ${esc(c.Tel)}</span>`:''}
           ${c.Tel?`<button class="wa-btn" onclick="window.open('${waLink(c.Tel,waMsg)}','_blank')" style="font-size:11px;padding:4px 10px">💬 WhatsApp${cuotasVencidas.length>0?' 🔴':proxVenc?' 🟡':''}</button>`:'<span style="font-size:11px;color:var(--muted)">Sin teléfono cargado</span>'}
         </div>
       </div>
@@ -2136,14 +2204,14 @@ function abrirPerfil(i){
     <div class="perfil-section">
       <h4>Lotes / Ventas (${ventasC.length})</h4>
       ${ventasC.length?`<table class="perfil-table"><thead><tr><th>Lote</th><th>Fecha</th><th>Precio</th><th>Seña</th><th>Cuotas</th><th>Boleto</th></tr></thead><tbody>
-        ${ventasC.map(v=>`<tr><td><b>${v.Lote}</b></td><td>${v.Fecha||'—'}</td><td>${usd(v.PrecioTotal)}</td><td>${usd(v.Sena)}</td><td><span class="badge badge-blue">${v.NCuotas}</span></td><td><span class="badge ${v.EstadoBoleto==='Firmado'?'badge-green':'badge-orange'}">${v.EstadoBoleto||'—'}</span></td></tr>`).join('')}
+        ${ventasC.map(v=>`<tr><td><b>${esc(v.Lote)}</b></td><td>${esc(v.Fecha||'—')}</td><td>${usd(v.PrecioTotal)}</td><td>${usd(v.Sena)}</td><td><span class="badge badge-blue">${v.NCuotas}</span></td><td><span class="badge ${v.EstadoBoleto==='Firmado'?'badge-green':'badge-orange'}">${esc(v.EstadoBoleto||'—')}</span></td></tr>`).join('')}
       </tbody></table>`:'<div class="empty" style="padding:10px">Sin ventas registradas.</div>'}
     </div>
 
     <div class="perfil-section">
       <h4>Pagos Realizados (${cobranzasC.length})</h4>
       ${cobranzasC.length?`<table class="perfil-table"><thead><tr><th>N° Recibo</th><th>Fecha</th><th>Lote</th><th>Concepto</th><th>Monto</th><th>Medio</th></tr></thead><tbody>
-        ${cobranzasC.map(cb=>`<tr><td><b>N° ${cb.NroRecibo}</b></td><td>${cb.Fecha}</td><td>${cb.Lote}</td><td>${cb.Concepto}</td><td>${usd(cb.Monto)}</td><td><span class="badge badge-blue">${cb.Medio}</span></td></tr>`).join('')}
+        ${cobranzasC.map(cb=>`<tr><td><b>N° ${esc(cb.NroRecibo)}</b></td><td>${esc(cb.Fecha)}</td><td>${esc(cb.Lote)}</td><td>${esc(cb.Concepto)}</td><td>${usd(cb.Monto)}</td><td><span class="badge badge-blue">${esc(cb.Medio)}</span></td></tr>`).join('')}
       </tbody></table>`:'<div class="empty" style="padding:10px">Sin pagos registrados.</div>'}
     </div>
 
@@ -2154,7 +2222,7 @@ function abrirPerfil(i){
         ${cuotasPendVis.sort((a,b)=>new Date(a.FechaVenc)-new Date(b.FechaVenc)).map(q=>{
           const fv=new Date(q.FechaVenc+'T12:00:00');const vencida=fv<hoy;
           const dias=Math.abs(Math.round((hoy-fv)/(24*3600*1000)));
-          return `<tr><td><b>${q.Lote}</b></td><td>${q.EsSena?'Seña':'N° '+q.Nro}</td><td>${q.FechaVenc}</td><td>${usd(q.Monto)}</td><td><span class="badge ${vencida?'badge-red':'badge-orange'}">${vencida?'Vencida':'Pendiente'}</span></td><td style="color:${vencida?'var(--red)':'var(--muted)'}">${vencida?`${dias}d atraso`:`en ${dias}d`}</td><td><button class="btn btn-green btn-sm role-write" onclick="openModalCobroForCuota('${q.ID}')">✓ Cobrar</button></td></tr>`;
+          return `<tr><td><b>${esc(q.Lote)}</b></td><td>${q.EsSena?'Seña':'N° '+q.Nro}</td><td>${esc(q.FechaVenc)}</td><td>${usd(q.Monto)}</td><td><span class="badge ${vencida?'badge-red':'badge-orange'}">${vencida?'Vencida':'Pendiente'}</span></td><td style="color:${vencida?'var(--red)':'var(--muted)'}">${vencida?`${dias}d atraso`:`en ${dias}d`}</td><td><button class="btn btn-green btn-sm role-write" onclick="openModalCobroForCuota('${q.ID}')">✓ Cobrar</button></td></tr>`;
         }).join('')}
       </tbody></table>`:'<div class="empty" style="padding:10px">Sin cuotas pendientes 🎉</div>'}
     </div>`;
@@ -2187,43 +2255,43 @@ function renderVentas(filtro){
     ${chip('— Sin plan','sinplan',finCounts.sinplan)}
   </div>`;
   const rows=ventas.length?ventas.map((v,i)=>{
-    const realIdx=db.ventas.indexOf(v);
-    const terr=db.terrenos.find(t=>t.Lote===v.Lote);
+    const realIdx=_IDX.ventaIdx.get(v);
+    const terr=_IDX.terrByLote.get(v.Lote);
     const m2=terr?parseFloat(terr.M2||0):0;
     const ppm2=m2>0?(parseFloat(v.PrecioTotal||0)/m2):null;
     return `<tr>
-    <td><b>${v.Lote}</b></td><td>${v.ClienteNombre}</td><td>${v.Fecha||'—'}</td>
-    <td>${usd(v.PrecioTotal)}</td><td>${usd(v.Sena)}</td><td>${(()=>{const s=calcSaldoVenta(v.ID);return s<=0?'<span style="color:var(--green);font-weight:600">Pagado</span>':usd(s);})()}</td>
-    <td>${ppm2?usd(ppm2):'—'}</td>
+    <td><b>${esc(v.Lote)}</b></td><td>${esc(v.ClienteNombre)}</td><td class="hide-m">${esc(v.Fecha||'—')}</td>
+    <td>${usd(v.PrecioTotal)}</td><td class="hide-m">${usd(v.Sena)}</td><td>${(()=>{const s=calcSaldoVenta(v.ID);return s<=0?'<span style="color:var(--green);font-weight:600">Pagado</span>':usd(s);})()}</td>
+    <td class="hide-m">${ppm2?usd(ppm2):'—'}</td>
     <td>${estadoFinancieroBadge(calcEstadoFinanciero(v.ID))}</td>
-    <td><span class="badge ${v.EstadoBoleto==='Firmado'?'badge-green':'badge-orange'}">${v.EstadoBoleto||'—'}</span></td>
+    <td class="hide-m"><span class="badge ${v.EstadoBoleto==='Firmado'?'badge-green':'badge-orange'}">${esc(v.EstadoBoleto||'—')}</span></td>
     <td style="display:flex;gap:4px">
       <button class="btn btn-outline btn-sm" onclick="showCuotasVenta(${realIdx})" title="Ver cuotas">📅 Cuotas</button>
       <button class="btn btn-outline btn-sm role-write" onclick="editVenta(${realIdx})" title="Editar venta">✏️</button>
       <button class="btn btn-gold btn-sm" onclick="showBoleto(${realIdx})" title="Generar boleto">📄 Boleto</button>
     </td>
     <td><button class="btn btn-danger btn-sm role-admin" onclick="deleteVenta(${realIdx})">🗑</button></td>
-  </tr>`;}).join(''):`<tr><td colspan="11" class="empty">${qv?'Sin resultados para "'+qv+'"':'Sin ventas con este filtro.'}</td></tr>`;
+  </tr>`;}).join(''):`<tr><td colspan="11" class="empty">${qv?'Sin resultados para "'+esc(qv)+'"':'Sin ventas con este filtro.'}</td></tr>`;
   id('content').innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:10px">
-  <input id="busq-ven" type="text" placeholder="🔍 Buscar por comprador o lote..." value="${_busqVentas.replace(/"/g,'&quot;')}" oninput="_busqVentas=this.value;renderVentas()" style="flex:1;max-width:340px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px">
+  <input id="busq-ven" type="text" placeholder="🔍 Buscar por comprador o lote..." value="${esc(_busqVentas)}" oninput="_busqVentas=this.value;_deb(renderVentas)" style="flex:1;max-width:340px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px">
   <button class="btn btn-primary role-write" onclick="openModalVenta()">+ Nueva Venta</button></div>
   ${chips}
   <div class="table-wrap"><div class="table-header"><h3>Ventas (${ventas.length}${ventas.length!==db.ventas.length?' de '+db.ventas.length:''})</h3></div>
-  <table><thead><tr><th>Lote</th><th>Comprador</th><th>Fecha</th><th>Precio</th><th>Seña</th><th>Saldo</th><th>USD/m²</th><th>Estado</th><th>Boleto</th><th></th><th></th></tr></thead>
+  <table><thead><tr><th>Lote</th><th>Comprador</th><th class="hide-m">Fecha</th><th>Precio</th><th class="hide-m">Seña</th><th>Saldo</th><th class="hide-m">USD/m²</th><th>Estado</th><th class="hide-m">Boleto</th><th></th><th></th></tr></thead>
   <tbody>${rows}</tbody></table></div>`;
   const bv=id('busq-ven');if(bv){bv.focus();bv.setSelectionRange(bv.value.length,bv.value.length);}
 }
 function calcSaldoVenta(ventaID){
-  const v=db.ventas.find(x=>x.ID===ventaID);if(!v)return 0;
-  const cobrado=db.cobranzas.filter(c=>c.VentaID===ventaID).reduce((s,c)=>s+parseFloat(c.Monto||0),0);
+  const v=_ventaDe(ventaID);if(!v)return 0;
+  const cobrado=_cobradoDe(ventaID);
   return parseFloat(v.PrecioTotal||0)-cobrado;
 }
 function openModalVenta(){
   const disp=sortLotes(db.terrenos.filter(t=>t.Estado==='Disponible'||t.Estado==='Reservado'));//excluye Área Verde
   if(!db.clientes.length){alert('Primero cargá un cliente.');return;}
   if(!disp.length){alert('No hay lotes disponibles.');return;}
-  id('v-lote').innerHTML=disp.map(t=>`<option value="${t.Lote}">${t.Lote} (${t.M2} m²)</option>`).join('');
-  id('v-cliente').innerHTML=db.clientes.map(c=>`<option value="${c.ID}">${c.Apellido}, ${c.Nombre}</option>`).join('');
+  id('v-lote').innerHTML=disp.map(t=>`<option value="${esc(t.Lote)}">${esc(t.Lote)} (${esc(t.M2)} m²)</option>`).join('');
+  id('v-cliente').innerHTML=db.clientes.map(c=>`<option value="${c.ID}">${esc(c.Apellido)}, ${esc(c.Nombre)}</option>`).join('');
   id('v-fecha').value=new Date().toISOString().split('T')[0];
   id('v-primera').value=new Date().toISOString().split('T')[0];
   id('v-sena').value='';id('v-precio').value='';id('v-saldo').value='';id('v-ncuotas').value=1;
@@ -2289,12 +2357,29 @@ function saveVenta(){
   if(!lote||!clienteID||!precio){alert('Completá Lote, Cliente y Precio.');return;}
   const cliente=db.clientes.find(c=>c.ID===clienteID);
   const saldo=precio-sena;
+  // Validaciones de negocio
+  if(precio<=0||sena<0){alert('El precio debe ser mayor a 0 y la seña no puede ser negativa.');return;}
+  if(sena>precio){alert('La seña ('+usd(sena)+') no puede ser mayor al precio total ('+usd(precio)+').');return;}
+  {
+    const _ed=parseInt(id('v-editing-idx').value);
+    const _otra=db.ventas.find((v,k)=>v.Lote===lote&&k!==_ed);
+    if(_otra){alert('El lote '+lote+' ya tiene una venta registrada a nombre de '+_otra.ClienteNombre+'.\n\nSi fue un error, eliminá esa venta primero.');return;}
+    const _t=db.terrenos.find(t=>t.Lote===lote);
+    const _nomCli=cliente?`${cliente.Apellido}, ${cliente.Nombre}`:'';
+    if(_ed<0&&_t&&_t.Estado==='Reservado'&&_t.Cliente&&_t.Cliente!==_nomCli){
+      if(!confirm('⚠️ El lote '+lote+' está RESERVADO para "'+_t.Cliente+'", pero lo estás vendiendo a "'+_nomCli+'".\n\n¿Continuar igual?'))return;
+    }
+  }
+  const _montos=[...document.querySelectorAll('.cq-monto')].map(i=>parseFloat(i.value)||0);
+  if(_montos.some(m=>m<=0)){alert('Hay cuotas con monto cero o negativo. Revisá los montos del plan de cuotas.');return;}
   // Leer montos y fechas de los inputs editables
   const montoInputs=[...document.querySelectorAll('.cq-monto')];
   const fechaInputs=[...document.querySelectorAll('.cq-fecha')];
   const editIdx=parseInt(id('v-editing-idx').value);
   const isEdit=editIdx>=0;
   let ventaID;
+  let terrNuevo=null,terrPrev=null; // para guardar el terreno recién DESPUÉS de la venta y poder revertir si falla
+  let cuotasEliminadas=[]; // ids de cuotas que dejan de existir al editar (hay que borrarlas también en el servidor)
   const clienteNombreStr=`${cliente.Apellido}, ${cliente.Nombre}`;
   if(isEdit){
     // Actualizar venta existente
@@ -2304,6 +2389,7 @@ function saveVenta(){
     v.EstadoBoleto=id('v-boleto').value;v.EstadoEscritura=id('v-escritura').value;v.Obs=id('v-obs').value;
     // Conservar cuotas pagadas; eliminar pendientes (excl. seña pagada)
     const pagadas=db.cuotas.filter(c=>c.VentaID===ventaID&&c.Estado==='Pagada');
+    cuotasEliminadas=db.cuotas.filter(c=>c.VentaID===ventaID&&c.Estado!=='Pagada').map(c=>String(c.ID));
     db.cuotas=db.cuotas.filter(c=>c.VentaID!==ventaID||c.Estado==='Pagada');
     const nroPagados=pagadas.filter(c=>!c.EsSena).map(c=>c.Nro);
     const senaPagada=pagadas.find(c=>c.EsSena);
@@ -2339,18 +2425,41 @@ function saveVenta(){
         ClienteNombre:clienteNombreStr,Nro:i+1,Monto:monto.toFixed(2),FechaVenc:fv,FechaCobro:'',Estado:'Pendiente'});
     }
     const tidx=db.terrenos.findIndex(t=>t.Lote===lote);
-    if(tidx>=0){db.terrenos[tidx].Estado='Vendido';db.terrenos[tidx].Cliente=clienteNombreStr;
+    if(tidx>=0){terrPrev={...db.terrenos[tidx]};db.terrenos[tidx].Estado='Vendido';db.terrenos[tidx].Cliente=clienteNombreStr;
       db.terrenos[tidx].PrecioVentaUSD=precio;db.terrenos[tidx].FechaVenta=fecha;
       db.terrenos[tidx].PrecioM2USD=(precio/parseFloat(db.terrenos[tidx].M2)).toFixed(2);
       db.terrenos[tidx].EstadoBoleto=id('v-boleto').value;
-      sbUpsert('terrenos',terrenoToSB(db.terrenos[tidx]));}
+      terrNuevo=db.terrenos[tidx];}
   }
   // Sync venta + cuotas a Supabase
   (async()=>{
     const venta=isEdit?db.ventas[editIdx]:db.ventas.find(v=>v.ID===ventaID);
-    await sbUpsert('ventas',ventaToSB(venta));
+    // Si algo falla en una venta NUEVA, se revierte lo cargado en pantalla para no mostrar como guardado algo que no lo está
+    const revertirNueva=()=>{
+      if(isEdit)return;
+      db.ventas=db.ventas.filter(v=>v.ID!==ventaID);
+      db.cuotas=db.cuotas.filter(c=>c.VentaID!==ventaID);
+      if(terrNuevo&&terrPrev)Object.assign(terrNuevo,terrPrev);
+      alert('⚠️ La venta NO se guardó en el servidor. Se canceló el registro; verificá la conexión y volvé a cargarla.');
+      renderCurrentModule();
+    };
+    const okVenta=await sbUpsert('ventas',ventaToSB(venta));
+    if(!okVenta){revertirNueva();return;}
     const cuotasVenta=db.cuotas.filter(c=>c.VentaID===ventaID);
-    if(cuotasVenta.length) await sb.from('cuotas').upsert(cuotasVenta.map(cuotaToSB));
+    if(cuotasVenta.length){
+      const {error}=await sb.from('cuotas').upsert(cuotasVenta.map(cuotaToSB));
+      if(error){
+        console.error(error);showToast('⚠️ No se pudieron guardar las cuotas: '+error.message,'err');
+        if(!isEdit){await sb.from('ventas').delete().eq('id',ventaID);revertirNueva();}
+        return;
+      }
+    }
+    if(terrNuevo)await sbUpsert('terrenos',terrenoToSB(terrNuevo));
+    // Al editar, las cuotas viejas ya reemplazadas se borran del servidor (si no, al recargar vuelven los valores anteriores)
+    if(cuotasEliminadas.length){
+      const {error}=await sb.from('cuotas').delete().in('id',cuotasEliminadas);
+      if(error){console.error(error);showToast('⚠️ Quedaron cuotas anteriores sin borrar en el servidor: '+error.message,'err');}
+    }
   })();
   closeModal('modal-venta');renderVentas();
 }
@@ -2363,8 +2472,8 @@ function editVenta(i){
   const allLotes=[...db.terrenos.filter(t=>t.Estado==='Disponible'||t.Estado==='Reservado'),
     ...(db.terrenos.filter(t=>t.Lote===v.Lote))];
   const uniqueLotes=[...new Map(allLotes.map(t=>[t.Lote,t])).values()];
-  id('v-lote').innerHTML=uniqueLotes.map(t=>`<option value="${t.Lote}" ${t.Lote===v.Lote?'selected':''}>${t.Lote} (${t.M2} m²)</option>`).join('');
-  id('v-cliente').innerHTML=db.clientes.map(c=>`<option value="${c.ID}" ${c.ID===v.ClienteID?'selected':''}>${c.Apellido}, ${c.Nombre}</option>`).join('');
+  id('v-lote').innerHTML=uniqueLotes.map(t=>`<option value="${esc(t.Lote)}" ${t.Lote===v.Lote?'selected':''}>${esc(t.Lote)} (${esc(t.M2)} m²)</option>`).join('');
+  id('v-cliente').innerHTML=db.clientes.map(c=>`<option value="${c.ID}" ${c.ID===v.ClienteID?'selected':''}>${esc(c.Apellido)}, ${esc(c.Nombre)}</option>`).join('');
   id('v-fecha').value=v.Fecha||'';
   id('v-precio').value=v.PrecioTotal||'';
   id('v-sena').value=v.Sena||'';
@@ -2429,20 +2538,32 @@ function sortLotes(arr){
 }
 
 // ─── BOLETO DE COMPRAVENTA ────────────────────────────────
-function numToWords(n){
-  n=Math.round(n);
-  if(n===0)return 'cero';
-  if(n===1000000)return 'un millón';
-  const ones=['','uno','dos','tres','cuatro','cinco','seis','siete','ocho','nueve',
-    'diez','once','doce','trece','catorce','quince','dieciséis','diecisiete','dieciocho','diecinueve','veinte',
-    'veintiuno','veintidós','veintitrés','veinticuatro','veinticinco','veintiséis','veintisiete','veintiocho','veintinueve'];
-  const tens=['','','','treinta','cuarenta','cincuenta','sesenta','setenta','ochenta','noventa'];
-  const hundreds=['','ciento','doscientos','trescientos','cuatrocientos','quinientos','seiscientos','setecientos','ochocientos','novecientos'];
+const _NW_ONES=['','uno','dos','tres','cuatro','cinco','seis','siete','ocho','nueve',
+  'diez','once','doce','trece','catorce','quince','dieciséis','diecisiete','dieciocho','diecinueve','veinte',
+  'veintiuno','veintidós','veintitrés','veinticuatro','veinticinco','veintiséis','veintisiete','veintiocho','veintinueve'];
+const _NW_TENS=['','','','treinta','cuarenta','cincuenta','sesenta','setenta','ochenta','noventa'];
+const _NW_HUND=['','ciento','doscientos','trescientos','cuatrocientos','quinientos','seiscientos','setecientos','ochocientos','novecientos'];
+// 1..999. apoc=true apocopa el "uno" final (un mil, veintiún mil, un metro…)
+function _nw1000(n,apoc){
   let r='';
-  if(n>=1000){const m=Math.floor(n/1000);r+=(m===1?'':numToWords(m)+' ')+'mil';n%=1000;if(n)r+=' ';}
-  if(n>=100){if(n===100){r+='cien';n=0;}else{r+=hundreds[Math.floor(n/100)];n%=100;if(n)r+=' ';}}
-  if(n>0){if(n<30)r+=ones[n];else{const t=Math.floor(n/10),u=n%10;r+=tens[t]+(u?' y '+ones[u]:'');}}
+  if(n>=100){if(n===100)return 'cien';r+=_NW_HUND[Math.floor(n/100)];n%=100;if(n)r+=' ';}
+  if(n>0){if(n<30)r+=_NW_ONES[n];else{const t=Math.floor(n/10),u=n%10;r+=_NW_TENS[t]+(u?' y '+_NW_ONES[u]:'');}}
+  if(apoc)r=r.replace(/veintiuno$/,'veintiún').replace(/uno$/,'un');
   return r.trim();
+}
+function numToWords(n,apoc){
+  n=Math.round(Number(n)||0);
+  if(n<0)return 'menos '+numToWords(-n,apoc);
+  if(n===0)return 'cero';
+  const mill=Math.floor(n/1000000);let rest=n%1000000;
+  const out=[];
+  if(mill)out.push(mill===1?'un millón':numToWords(mill,true)+' millones');
+  if(rest){
+    const miles=Math.floor(rest/1000), unid=rest%1000;
+    if(miles)out.push(miles===1?'mil':_nw1000(miles,true)+' mil');
+    if(unid)out.push(_nw1000(unid,!!apoc));
+  }
+  return out.join(' ').trim();
 }
 function fechaES(dateStr){
   if(!dateStr)return '___';
@@ -2461,15 +2582,18 @@ function m2Words(m2str){
   const n=parseFloat(String(m2str).replace(',','.'));
   if(isNaN(n))return m2str;
   const ent=Math.floor(n),dec=Math.round((n-ent)*100);
-  let r=numToWords(ent)+' metros cuadrados';
-  if(dec>0)r+=' con '+numToWords(dec)+' decímetros cuadrados';
+  let r=numToWords(ent,true)+' metros cuadrados';
+  if(dec>0)r+=' con '+numToWords(dec,true)+' decímetros cuadrados';
   return r;
 }
 function numCuotasWords(n){
+  n=parseInt(n)||0;
   const w=['una','dos','tres','cuatro','cinco','seis','siete','ocho','nueve','diez',
     'once','doce','trece','catorce','quince','dieciséis','diecisiete','dieciocho','diecinueve','veinte',
     'veintiuna','veintidós','veintitrés','veinticuatro','veinticinco','veintiséis','veintisiete','veintiocho','veintinueve','treinta'];
-  return n>=1&&n<=30?w[n-1]:numToWords(n);
+  if(n>=1&&n<=30)return w[n-1];
+  if(n>30&&n<100){const t=Math.floor(n/10),u=n%10;return _NW_TENS[t]+(u?' y '+w[u-1]:'');}
+  return numToWords(n).replace(/uno$/,'una');
 }
 function formatUSD(n){return parseFloat(n).toLocaleString('es-AR',{minimumFractionDigits:0,maximumFractionDigits:0});}
 
@@ -2517,14 +2641,14 @@ function getDesarrollador(){
 function buildVendedoresDesc(d){
   const items=(d.titulares||[]).filter(t=>t&&t.nombre);
   if(!items.length)return '___';
-  const partes=items.map((t,i)=>`${i===0?'El/La Sr./Sra.':'el/la Sr./Sra.'} <b>${String(t.nombre).toUpperCase()}</b>${t.dni?`, DNI ${t.dni}`:''}`);
+  const partes=items.map((t,i)=>`${i===0?'El/La Sr./Sra.':'el/la Sr./Sra.'} <b>${esc(String(t.nombre).toUpperCase())}</b>${t.dni?`, DNI ${esc(t.dni)}`:''}`);
   const listado=partes.length===1?partes[0]:partes.slice(0,-1).join('; ')+'; y '+partes[partes.length-1];
-  return `${listado}; todos domiciliados para los efectos del presente documento en ${d.domicilio||'___'}, en adelante denominados indistintamente <b>"EL DESARROLLADOR"</b>`;
+  return `${listado}; todos domiciliados para los efectos del presente documento en ${esc(d.domicilio||'___')}, en adelante denominados indistintamente <b>"EL DESARROLLADOR"</b>`;
 }
 function buildFirmasDesarrollador(d){
   const items=(d.titulares||[]).filter(t=>t&&t.nombre);
   if(!items.length)return '<div><div class="firma-line">EL DESARROLLADOR</div></div>';
-  return items.map(t=>`<div><div class="firma-line">${String(t.nombre).toUpperCase()}${t.dni?`<br>DNI: ${t.dni}`:''}</div></div>`).join('');
+  return items.map(t=>`<div><div class="firma-line">${esc(String(t.nombre).toUpperCase())}${t.dni?`<br>DNI: ${esc(t.dni)}`:''}</div></div>`).join('');
 }
 function renderTemplate(tpl,data){
   return tpl.replace(/\{\{(\w+)\}\}/g,(m,k)=>Object.prototype.hasOwnProperty.call(data,k)?(data[k]??''):m);
@@ -2532,7 +2656,7 @@ function renderTemplate(tpl,data){
 const BOLETO_TEMPLATE_B4=`<h2 style="text-align:center;font-size:16px;font-weight:900;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">BOLETO DE COMPRA VENTA</h2>
 <p style="margin-bottom:16px">En la ciudad de {{CIUDAD}}, Provincia de {{PROVINCIA}}, a los <b>{{FECHA_ENCABEZADO}}</b>, entre, por una parte {{VENDEDORES_DESC}}, en adelante la parte <b>VENDEDORA</b> o indistintamente <b>EL DESARROLLADOR</b>, por una parte y por la otra {{COMPRADOR_DESC}}, en adelante denominado/a como <b>"EL COMPRADOR"</b> y en tal carácter convienen en celebrar el presente Boleto de compra venta de una futura unidad Funcional que se regirá por las siguientes cláusulas y condiciones:</p>
 <div class="cla">PRIMERA:</div>
-<p>El DESARROLLADOR, VENDE, CEDE y TRANSFIERE Una (1) fracción de terreno indiviso y a subdividir de aproximadamente <b>{{SUPERFICIE_LOTE_TEXTO}} ({{SUPERFICIE_LOTE_M2}} mts²)</b> o lo que más o en menos surja de la mensura definitiva. Los metros que adquiere el COMPRADOR forman parte de la fracción mayor <b>{{FRACCIONAMIENTO}}</b>, Nomenclatura Catastral de origen N° <b>{{NOMENCLATURA_CATASTRAL}}</b> a subdividir en <b>Treinta y cuatro (34)</b> futuras unidades funcionales, siendo la parte Vendida identificada comercialmente como futura <b>UF{{LOTE}}</b> correspondiente al proyecto de subdivisión confeccionado por el Agrimensor <b>{{AGRIMENSOR}}</b> que se adjunta al presente BOLETO de COMPRA VENTA y que firmado por las partes forman un único documento identificado como ANEXO "1".</p>
+<p>El DESARROLLADOR, VENDE, CEDE y TRANSFIERE Una (1) fracción de terreno indiviso y a subdividir de aproximadamente <b>{{SUPERFICIE_LOTE_TEXTO}} ({{SUPERFICIE_LOTE_M2}} mts²)</b> o lo que más o en menos surja de la mensura definitiva. Los metros que adquiere el COMPRADOR forman parte de la fracción mayor <b>{{FRACCIONAMIENTO}}</b>, Nomenclatura Catastral de origen N° <b>{{NOMENCLATURA_CATASTRAL}}</b> a subdividir en <b>Treinta y cuatro (34)</b> futuras unidades funcionales, siendo la parte Vendida identificada comercialmente como futura <b>{{LOTE_UF}}</b> correspondiente al proyecto de subdivisión confeccionado por el Agrimensor <b>{{AGRIMENSOR}}</b> que se adjunta al presente BOLETO de COMPRA VENTA y que firmado por las partes forman un único documento identificado como ANEXO "1".</p>
 <p>El DESARROLLADOR acuerda con el COMPRADOR y este así acepta que la Futura unidad Funcional objeto del presente contrato posee un <b>treinta por ciento (30%)</b> de F.O.S para la construcción de una vivienda unifamiliar, como así también el COMPRADOR acepta expresamente las obligaciones que se especifican en las "Condiciones de Venta" que se consideran parte integrante de este boleto de compraventa y se adjunta al presente como Anexo "2" y que están destinadas a asegurar el carácter residencial de la zona en el que están ubicadas la futura Fracción de terreno objeto de la presente venta.</p>
 <div class="cla">SEGUNDA:</div>
 {{SEGUNDA_CLAUSULA_B4}}
@@ -2572,8 +2696,7 @@ const DEFAULT_BOLETO_TEMPLATE=`<h2>Boleto de Compra Venta</h2>
 <div class="cla">Tercera: Precio y Forma de Pago</div>
 <p>Las partes realizan la presente operación por la suma única, Total y Convenida de <b>Dólares Billetes Estadounidenses {{PRECIO_TEXTO}} (U$S {{PRECIO_USD}}.-)</b>, suma que es abonada por EL/LA COMPRADOR/A de la siguiente manera:</p>
 <p>a) <b>Dólares Billetes Estadounidenses {{SENA_TEXTO}} (U$S {{SENA_USD}}.-)</b> en concepto de Seña/Adelanto, en este mismo acto, en dinero efectivo que EL DESARROLLADOR recibe de plena conformidad, otorgando por el presente suficiente recibo y carta de pago.</p>
-<p>b) El saldo, o sea la suma de <b>Dólares Billetes Estadounidenses {{SALDO_TEXTO}} (U$S {{SALDO_USD}}.-)</b>, EL/LA COMPRADOR/A se obliga a abonarlos en <b>{{NCUOTAS}} ({{NCUOTAS_TEXTO}}) cuotas mensuales y consecutivas</b>, comenzando el <b>{{PRIMERA_CUOTA_FECHA}}</b> y finalizando el <b>{{ULTIMA_CUOTA_FECHA}}</b>.</p>
-<p>La falta de pago de una (1) o más cuotas dejará a EL/LA COMPRADOR/A en mora automática, sin necesidad de interpelación judicial o extrajudicial.</p>
+{{CLAUSULA_SALDO}}
 <div class="cla">Cuarta: Lugar de Pago</div>
 <p>Las partes acuerdan como lugar de pago el domicilio del DESARROLLADOR.</p>
 <div class="cla">Quinta: Moneda de Pago</div>
@@ -2606,15 +2729,15 @@ function showBoleto(i){
   const ecivil=cliente?.EstadoCivil||'';
   const conyuge=cliente?.Conyuge||'';
   const mailCliente=cliente?.Mail||'';
-  const domCliente=cliente?[cliente.Domicilio,cliente.Ciudad,cliente.Provincia?`Provincia de ${cliente.Provincia}`:''].filter(Boolean).join(', '):'___';
+  const domCliente=cliente?[cliente.Domicilio,cliente.Ciudad,cliente.Provincia?`Provincia de ${cliente.Provincia}`:''].filter(Boolean).map(esc).join(', '):'___';
   // Construir descripción del comprador
   let compradorDesc='___';
   if(cliente){
-    compradorDesc=`El/La Sr./Sra. <b>${cliente.Nombre.toUpperCase()} ${cliente.Apellido.toUpperCase()}</b>, ${nac}`;
-    if(ecivil) compradorDesc+=`, de estado civil <b>${ecivil.toLowerCase()}</b>`;
-    if(ecivil==='Casado/a'&&conyuge) compradorDesc+=`, casado/a con <b>${conyuge}</b>`;
-    compradorDesc+=`, DNI N° <b>${cliente.DNI}</b>`;
-    if(mailCliente) compradorDesc+=`, correo electrónico: <b>${mailCliente}</b>`;
+    compradorDesc=`El/La Sr./Sra. <b>${esc(cliente.Nombre.toUpperCase())} ${esc(cliente.Apellido.toUpperCase())}</b>, ${esc(nac)}`;
+    if(ecivil) compradorDesc+=`, de estado civil <b>${esc(ecivil.toLowerCase())}</b>`;
+    if(ecivil==='Casado/a'&&conyuge) compradorDesc+=`, casado/a con <b>${esc(conyuge)}</b>`;
+    compradorDesc+=`, DNI N° <b>${esc(cliente.DNI)}</b>`;
+    if(mailCliente) compradorDesc+=`, correo electrónico: <b>${esc(mailCliente)}</b>`;
     compradorDesc+=`, domiciliado/a en <b>${domCliente}</b>`;
   }
 
@@ -2625,10 +2748,10 @@ function showBoleto(i){
   const tablaCuotas=(()=>{
     const cuotasSaldo=cuotasVenta.filter(c=>!c.EsSena).sort((a,b)=>parseInt(a.Nro)-parseInt(b.Nro));
     if(!cuotasSaldo.length) return '';
-    const filas=cuotasSaldo.map(c=>`<tr><td style="text-align:center;padding:4px 8px;border:1px solid #ccc">${c.Nro}</td><td style="padding:4px 8px;border:1px solid #ccc">${fechaES(c.FechaVenc)}</td><td style="text-align:right;padding:4px 8px;border:1px solid #ccc">U$S ${formatUSD(c.Monto)}</td></tr>`).join('');
+    const filas=cuotasSaldo.map(c=>`<tr><td style="text-align:center;padding:4px 8px;border:1px solid #ccc">${esc(c.Nro)}</td><td style="padding:4px 8px;border:1px solid #ccc">${fechaES(c.FechaVenc)}</td><td style="text-align:right;padding:4px 8px;border:1px solid #ccc">U$S ${formatUSD(c.Monto)}</td></tr>`).join('');
     return `<table style="width:100%;border-collapse:collapse;font-size:12px;margin:8px 0 12px 0"><thead><tr style="background:#f0f0f0"><th style="padding:4px 8px;border:1px solid #ccc">N°</th><th style="padding:4px 8px;border:1px solid #ccc">Vencimiento</th><th style="padding:4px 8px;border:1px solid #ccc">Monto</th></tr></thead><tbody>${filas}</tbody></table>`;
   })();
-  const firmasComprador=`<div><div class="firma-line">${cliente?`${cliente.Nombre.toUpperCase()} ${cliente.Apellido.toUpperCase()}<br>DNI: ${cliente.DNI}`:'COMPRADOR/A<br>DNI: ___'}</div></div>`;
+  const firmasComprador=`<div><div class="firma-line">${cliente?`${esc(cliente.Nombre.toUpperCase())} ${esc(cliente.Apellido.toUpperCase())}<br>DNI: ${esc(cliente.DNI)}`:'COMPRADOR/A<br>DNI: ___'}</div></div>`;
 
   // ── Cláusula Segunda B4: adapta contado vs cuotas ──
   const esContado=saldo<=0.01||parseInt(v.NCuotas||0)===0;
@@ -2640,19 +2763,20 @@ function showBoleto(i){
 <p>La falta de pago de una (1) o más cuotas dejará al COMPRADOR en mora automática, sin necesidad de interpelación judicial o extrajudicial.</p>`;
 
   const merge={
-    LOTE:v.Lote,
-    CIUDAD:d.ciudad||'___', PROVINCIA:d.provincia||'___',
+    LOTE:esc(v.Lote),
+    LOTE_UF:esc(/^\s*UF\b/i.test(String(v.Lote))?String(v.Lote).trim():'UF'+v.Lote),
+    CIUDAD:esc(d.ciudad||'___'), PROVINCIA:esc(d.provincia||'___'),
     FECHA_ENCABEZADO:fechaEncabezadoES(v.Fecha),
     VENDEDORES_DESC:buildVendedoresDesc(d),
     COMPRADOR_DESC:compradorDesc,
-    DEPARTAMENTO:d.departamento||'___',
-    SUPERFICIE_TEXTO:d.superficieM2?m2Words(d.superficieM2).toUpperCase():'___',
-    SUPERFICIE_M2:d.superficieM2||'___',
-    NOMENCLATURA_CATASTRAL:d.nomenclaturaCatastral||'___',
-    FRACCIONAMIENTO:d.fraccionamiento||'___',
-    SUPERFICIE_LOTE_TEXTO:m2Words(m2),
-    SUPERFICIE_LOTE_M2:m2,
-    AGRIMENSOR:d.agrimensor||'___',
+    DEPARTAMENTO:esc(d.departamento||'___'),
+    SUPERFICIE_TEXTO:d.superficieM2?esc(m2Words(d.superficieM2).toUpperCase()):'___',
+    SUPERFICIE_M2:esc(d.superficieM2||'___'),
+    NOMENCLATURA_CATASTRAL:esc(d.nomenclaturaCatastral||'___'),
+    FRACCIONAMIENTO:esc(d.fraccionamiento||'___'),
+    SUPERFICIE_LOTE_TEXTO:esc(m2Words(m2)),
+    SUPERFICIE_LOTE_M2:esc(m2),
+    AGRIMENSOR:esc(d.agrimensor||'___'),
     PRECIO_TEXTO:numToWords(parseFloat(v.PrecioTotal)),
     PRECIO_USD:formatUSD(v.PrecioTotal),
     SENA_TEXTO:numToWords(parseFloat(v.Sena)),
@@ -2664,12 +2788,16 @@ function showBoleto(i){
     PRIMERA_CUOTA_FECHA:primeraCuota?fechaES(primeraCuota.FechaVenc):'___',
     ULTIMA_CUOTA_FECHA:ultimaCuota?fechaES(ultimaCuota.FechaVenc):'___',
     TABLA_CUOTAS:tablaCuotas,
-    ESCRITURA_TEXTO:d.escrituraTexto||'___',
-    JURISDICCION_TEXTO:d.jurisdiccionTexto||'___',
+    ESCRITURA_TEXTO:esc(d.escrituraTexto||'___'),
+    JURISDICCION_TEXTO:esc(d.jurisdiccionTexto||'___'),
     FIRMAS_DESARROLLADOR:buildFirmasDesarrollador(d),
     FIRMAS_COMPRADOR:firmasComprador,
     FIRMAS_COLS:(titularesValidos.length||1)+1,
     SEGUNDA_CLAUSULA_B4:segundaClausulaB4,
+    CLAUSULA_SALDO:esContado
+      ?`<p>b) El precio total de la operación ha sido abonado íntegramente en este acto, por lo que no existe saldo pendiente de pago.</p>`
+      :`<p>b) El saldo, o sea la suma de <b>Dólares Billetes Estadounidenses ${numToWords(saldo)} (U$S ${formatUSD(saldo)}.-)</b>, EL/LA COMPRADOR/A se obliga a abonarlos en <b>${esc(v.NCuotas)} (${numCuotasWords(parseInt(v.NCuotas)).toUpperCase()}) cuotas mensuales y consecutivas</b>, comenzando el <b>${primeraCuota?fechaES(primeraCuota.FechaVenc):'___'}</b> y finalizando el <b>${ultimaCuota?fechaES(ultimaCuota.FechaVenc):'___'}</b>.</p>
+<p>La falta de pago de una (1) o más cuotas dejará a EL/LA COMPRADOR/A en mora automática, sin necesidad de interpelación judicial o extrajudicial.</p>`,
   };
   // Selección de plantilla: Balconada 4 usa su plantilla específica
   const tplB4=(d.boletoTemplate==='__B4__')||(!d.boletoTemplate&&currentLoteoId===3);
@@ -2731,16 +2859,17 @@ function renderCobranzas(){
   db.cobranzas.forEach(c=>{if(porSocio[c.Socio]!==undefined)porSocio[c.Socio]+=parseFloat(c.Monto||0);});
   const totalCobrado=db.cobranzas.reduce((s,c)=>s+parseFloat(c.Monto||0),0);
   // Filtrar tabla
+  const _ixCob=new Map(db.cobranzas.map((c,i)=>[c,i]));
   let lista=fs?db.cobranzas.filter(c=>c.Socio===fs):db.cobranzas;
   if(qc) lista=lista.filter(c=>(c.ClienteNombre||'').toLowerCase().includes(qc)||(c.Lote||'').toLowerCase().includes(qc)||String(c.NroRecibo||'').includes(qc));
   const totalFiltro=lista.reduce((s,c)=>s+parseFloat(c.Monto||0),0);
   const rows=lista.length?[...lista].sort((a,b)=>new Date(b.Fecha)-new Date(a.Fecha)).map(c=>{
-    const i=db.cobranzas.indexOf(c);
+    const i=_ixCob.get(c);
     return`<tr>
-    <td><b>N° ${c.NroRecibo}</b></td><td>${c.Fecha}</td><td><b>${c.Lote}</b></td>
-    <td>${_resolverNombreCliente(c)}</td><td>${c.Concepto}</td><td>${usd(c.Monto)}</td>
-    <td><span class="badge badge-blue">${c.Medio}</span></td>
-    <td><span class="badge badge-gold">${c.Socio||'—'}</span></td>
+    <td><b>N° ${esc(c.NroRecibo)}</b></td><td>${esc(c.Fecha)}</td><td><b>${esc(c.Lote)}</b></td>
+    <td>${esc(_resolverNombreCliente(c))}</td><td>${esc(c.Concepto)}</td><td>${usd(c.Monto)}</td>
+    <td><span class="badge badge-blue">${esc(c.Medio)}</span></td>
+    <td><span class="badge badge-gold">${esc(c.Socio||'—')}</span></td>
     <td style="display:flex;gap:4px">
       <button class="btn btn-outline btn-sm" onclick="showRecibo(${i})" title="Ver recibo">🧾</button>
       <button class="btn btn-outline btn-sm role-admin" onclick="editCobro(${i})" title="Editar cobro">✏️</button>
@@ -2752,8 +2881,8 @@ function renderCobranzas(){
   <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap">
     ${getSocios().map(s=>{
       const activo=s.nombre===fs;
-      return`<div class="stat-card" style="flex:1;min-width:160px;cursor:pointer;border:2px solid ${activo?'var(--navy)':'var(--border)'};background:${activo?'var(--navy)':'var(--card)'};color:${activo?'#fff':'inherit'};border-radius:12px;transition:all .15s" onclick="filtrarCobSocio('${s.nombre.replace(/'/g,"\\'")}')">
-        <div class="label" style="${activo?'color:rgba(255,255,255,.7)':''}">${s.nombre.split(' ')[0]}</div>
+      return`<div class="stat-card" style="flex:1;min-width:160px;cursor:pointer;border:2px solid ${activo?'var(--navy)':'var(--border)'};background:${activo?'var(--navy)':'var(--card)'};color:${activo?'#fff':'inherit'};border-radius:12px;transition:all .15s" onclick="filtrarCobSocio(${escJs(s.nombre)})">
+        <div class="label" style="${activo?'color:rgba(255,255,255,.7)':''}">${esc(s.nombre.split(' ')[0])}</div>
         <div class="value" style="font-size:18px;color:${activo?'#fff':'var(--green)'}">${usd(porSocio[s.nombre]||0)}</div>
         <div class="sub" style="${activo?'color:rgba(255,255,255,.6)':''}">${s.pct}% · ${activo?'clic para quitar filtro':'clic para filtrar'}</div>
       </div>`;
@@ -2765,7 +2894,7 @@ function renderCobranzas(){
     </div>
   </div>
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:10px">
-    <input id="busq-cob" type="text" placeholder="🔍 Buscar por cliente, lote o N° recibo..." value="${_busqCobranzas.replace(/"/g,'&quot;')}" oninput="_busqCobranzas=this.value;renderCobranzas()" style="flex:1;max-width:340px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px">
+    <input id="busq-cob" type="text" placeholder="🔍 Buscar por cliente, lote o N° recibo..." value="${esc(_busqCobranzas)}" oninput="_busqCobranzas=this.value;_deb(renderCobranzas)" style="flex:1;max-width:340px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px">
     <div style="font-size:13px;color:var(--muted);flex:1">${(fs?'Filtrando: <b>'+fs+'</b> — ':'')+lista.length+' cobros · <b style="color:var(--green)">'+usd(totalFiltro)+'</b>'}</div>
     <button class="btn btn-primary role-write" onclick="openModalCobro()">+ Registrar Cobro</button>
   </div>
@@ -2793,7 +2922,7 @@ function editCobro(i){
   // Siempre permitir re-vincular (puede tener VentaID incorrecto)
   const clientesMap=[...new Map(db.cuotas.map(x=>[x.ClienteID,x.ClienteNombre])).entries()].sort((a,b)=>a[1].localeCompare(b[1]));
   id('cb-cliente-filtro').innerHTML='<option value="">— '+(c.VentaID?'Re-vincular a otra cuota':'Vincular a venta')+' —</option>'+
-    clientesMap.map(([cid,cn])=>'<option value="'+cid+'">'+cn+'</option>').join('');
+    clientesMap.map(([cid,cn])=>'<option value="'+esc(cid)+'">'+esc(cn)+'</option>').join('');
   // Pre-seleccionar cliente si hay vínculo conocido
   if(c.VentaID){
     const cuotaActual=db.cuotas.find(x=>x.VentaID===c.VentaID);
@@ -2808,7 +2937,7 @@ function openModalCobroForCuota(cuotaID){
   if(!c)return;
   id('cobro-modal-title').textContent='Registrar Cobro';
   id('cb-editing-id').value='';
-  id('cb-cuota').innerHTML=`<option value="${c.ID}">${c.Lote} — ${c.ClienteNombre} — ${c.EsSena?'🔑 Seña':'Cuota N°'+c.Nro} — ${usd(c.Monto)}</option>`;
+  id('cb-cuota').innerHTML=`<option value="${c.ID}">${esc(c.Lote)} — ${esc(c.ClienteNombre)} — ${c.EsSena?'🔑 Seña':'Cuota N°'+c.Nro} — ${usd(c.Monto)}</option>`;
   id('cb-cuota').disabled=false;
   id('cb-fecha').value=new Date().toISOString().split('T')[0];
   id('cb-monto').value=c.Monto;
@@ -2836,15 +2965,35 @@ function filtrarCuotasPorCliente(){
   });
   if(modoEdicion){
     id('cb-cuota').innerHTML='<option value="">— Mantener vínculo actual —</option>'+
-      (cp.length?cp.map(c=>`<option value="${c.id}">${c.label}</option>`).join(''):'');
+      (cp.length?cp.map(c=>`<option value="${esc(c.id)}">${esc(c.label)}</option>`).join(''):'');
   } else {
-    id('cb-cuota').innerHTML=cp.length?cp.map(c=>`<option value="${c.id}">${c.label}</option>`).join(''):'<option value="">Sin cuotas registradas</option>';
+    id('cb-cuota').innerHTML=cp.length?cp.map(c=>`<option value="${esc(c.id)}">${esc(c.label)}</option>`).join(''):'<option value="">Sin cuotas registradas</option>';
     fillCobroFromCuota();
   }
 }
 function openModalGasto(){
   fillSociosSelect('g-socio');
+  id('gasto-modal-title').textContent='Registrar Gasto';
+  id('g-editing-idx').value='-1';
   id('g-fecha').value=new Date().toISOString().split('T')[0];
+  id('g-monto').value='';id('g-concepto').value='';id('g-obs').value='';
+  id('g-comp-preview').style.display='none';
+  openModal('modal-gasto');
+}
+function editGasto(i){
+  const g=db.gastos[i];if(!g)return;
+  fillSociosSelect('g-socio');
+  id('gasto-modal-title').textContent='Editar Gasto';
+  id('g-editing-idx').value=String(i);
+  id('g-fecha').value=g.Fecha||'';
+  id('g-monto').value=g.Monto||'';
+  id('g-concepto').value=g.Concepto||'';
+  id('g-cat').value=g.Categoria||'Otros';
+  id('g-socio').value=g.Socio||'';
+  id('g-obs').value=g.Obs||'';
+  const pv=id('g-comp-preview');
+  if(g.ComprobanteUrl){pv.style.display='block';pv.textContent='📎 Comprobante cargado (subí otro archivo para reemplazarlo)';}
+  else pv.style.display='none';
   openModal('modal-gasto');
 }
 function openModalCobro(){
@@ -2855,7 +3004,7 @@ function openModalCobro(){
   id('cb-cuota').disabled=false;
   // Poblar selector de clientes con cuotas pendientes
   const clientesConCuotas=[...new Map(db.cuotas.filter(c=>c.Estado!=='Pagada').map(c=>[c.ClienteID,c.ClienteNombre])).entries()].sort((a,b)=>a[1].localeCompare(b[1]));
-  id('cb-cliente-filtro').innerHTML=`<option value="">— Todos los clientes —</option>`+clientesConCuotas.map(([cid,cn])=>`<option value="${cid}">${cn}</option>`).join('');
+  id('cb-cliente-filtro').innerHTML=`<option value="">— Todos los clientes —</option>`+clientesConCuotas.map(([cid,cn])=>`<option value="${esc(cid)}">${esc(cn)}</option>`).join('');
   filtrarCuotasPorCliente();
   id('cb-fecha').value=new Date().toISOString().split('T')[0];
   id('cb-monto').value='';id('cb-obs').value='';
@@ -2868,10 +3017,21 @@ function fillCobroFromCuota(){
     id('cb-concepto').value=c.EsSena?`Seña/Adelanto — Lote ${c.Lote}`:`Cuota N° ${c.Nro} — Lote ${c.Lote}`;
   }
 }
-function saveCobro(showR){
+// Último N° de recibo usado en el servidor, INCLUYENDO los recibos borrados (para no reutilizar números)
+async function _maxReciboServidor(){
+  try{
+    const {data,error}=await sb.from('cobranzas').select('nro_recibo').eq('loteo_id',currentLoteoId).order('nro_recibo',{ascending:false}).limit(1);
+    if(error)throw error;
+    return (data&&data[0]&&Number(data[0].nro_recibo))||0;
+  }catch(e){console.warn('No se pudo consultar el último recibo',e);return 0;}
+}
+let _guardandoCobro=false;
+async function saveCobro(showR){
+  if(_guardandoCobro)return;
   const editingID=id('cb-editing-id').value;
   const monto=parseFloat(id('cb-monto').value||0);
   if(!monto){alert('Ingresá el monto cobrado.');return;}
+  if(monto<0&&!confirm('⚠️ El monto es NEGATIVO ('+usd(monto)+').\n\nUn cobro negativo resta de la cuenta del cliente. Para anular un cobro conviene eliminarlo.\n\n¿Continuar igual?'))return;
 
   // ── MODO EDICIÓN ──
   if(editingID){
@@ -2902,7 +3062,17 @@ function saveCobro(showR){
     }
     // Actualizar en Supabase
     const upd={fecha:cobro.Fecha,monto:cobro.Monto,concepto:cobro.Concepto,medio:cobro.Medio,socio:cobro.Socio,obs:cobro.Obs,venta_id:cobro.VentaID||null,lote:cobro.Lote||null,cliente_nombre:cobro.ClienteNombre||null};
-    if(cobro.ID) sb.from('cobranzas').update(upd).eq('id',cobro.ID);
+    if(cobro.ID){
+      (async()=>{
+        try{
+          const {error}=await sb.from('cobranzas').update(upd).eq('id',cobro.ID);
+          if(error)throw error;
+        }catch(e){
+          console.error('editCobro update',e);
+          showToast('⚠️ El cambio del cobro NO se guardó en el servidor: '+(e.message||e),'err');
+        }
+      })();
+    }
     // Reconciliar si quedó vinculado
     if(cobro.VentaID){
       reconciliarVenta(cobro.VentaID);
@@ -2921,6 +3091,11 @@ function saveCobro(showR){
   if(c&&c.EsSena&&monto<parseFloat(c.Monto)){
     if(!confirm(`⚠️ Atención: la seña pactada es ${usd(c.Monto)} pero estás registrando ${usd(monto)}.\n\nSi es un pago parcial de seña, la cuota quedará como Pendiente hasta cobrar el saldo.\n\n¿Querés continuar igual?`))return;
   }
+  _guardandoCobro=true;
+  try{
+  // Evita repetir un N° de recibo ya emitido (borrado o creado desde otra sesión)
+  const srvMax=await _maxReciboServidor();
+  if(srvMax>=nextReciboId)nextReciboId=srvMax+1;
   const cobro={ID:nextCobroId++,NroRecibo:nextReciboId++,Fecha:id('cb-fecha').value,
     VentaID:c?c.VentaID:null,Lote:c?c.Lote:'—',ClienteNombre:c?c.ClienteNombre:'—',
     Concepto:id('cb-concepto').value,Monto:monto,Medio:id('cb-medio').value,
@@ -2928,16 +3103,22 @@ function saveCobro(showR){
   db.cobranzas.push(cobro);
   // Reconciliar cuenta corriente (calcula estado cuotas automáticamente)
   if(cobro.VentaID) reconciliarVenta(cobro.VentaID);
-  // Guardar cobranza en Supabase (insert para obtener el id serial)
-  (async()=>{
-    const row=await sbInsert('cobranzas',cobroToSB(cobro));
-    if(row)cobro.ID=row.id;
-    // Sincronizar estados de cuotas actualizados
-    if(cobro.VentaID) syncCuotasReconciliadas(cobro.VentaID);
-  })();
+  // Guardar en Supabase ANTES de dar el cobro por emitido (si falla, no se muestra recibo)
+  const row=await sbInsert('cobranzas',cobroToSB(cobro));
+  if(!row){
+    const k=db.cobranzas.indexOf(cobro);if(k>=0)db.cobranzas.splice(k,1);
+    if(cobro.VentaID) reconciliarVenta(cobro.VentaID);
+    renderCobranzas();
+    showToast('⚠️ El cobro NO se guardó. Verificá la conexión y volvé a intentarlo.','err');
+    return;
+  }
+  cobro.ID=row.id;
+  // Sincronizar estados de cuotas actualizados
+  if(cobro.VentaID) await syncCuotasReconciliadas(cobro.VentaID);
   closeModal('modal-cobro');
-  if(showR)showRecibo(db.cobranzas.length-1);
+  if(showR)showRecibo(db.cobranzas.indexOf(cobro));
   renderCobranzas();
+  }finally{_guardandoCobro=false;}
 }
 function deleteCobro(i){
   if(!confirm('¿Eliminar cobro? Quedará registrado en el historial de auditoría.'))return;
@@ -2957,8 +3138,8 @@ function deleteCobro(i){
 // ─── RECIBO MODAL ────────────────────────────────────────
 function _resolverNombreCliente(c){
   // Resuelve siempre desde db.clientes para evitar nombres desactualizados
-  const venta=db.ventas.find(v=>v.ID===c.VentaID);
-  const cliente=venta?db.clientes.find(cl=>cl.ID===venta.ClienteID):null;
+  const venta=_ventaDe(c.VentaID);
+  const cliente=venta?(_IDX?_IDX.clienteById.get(venta.ClienteID):db.clientes.find(cl=>cl.ID===venta.ClienteID)):null;
   return cliente?`${cliente.Apellido}, ${cliente.Nombre}`:c.ClienteNombre;
 }
 function _resolverDNICliente(c){
@@ -2972,17 +3153,17 @@ function reciboHTML(c){
   const dni=_resolverDNICliente(c);
   return `
   <div class="rcpt-title">RECIBO DE PAGO</div>
-  <div class="rcpt-sub">${getLoteoNombre().toUpperCase()} — Loteo Residencial<br>${getDesarrollador().loteoUbicacion||''}</div>
+  <div class="rcpt-sub">${esc(getLoteoNombre().toUpperCase())} — Loteo Residencial<br>${esc(getDesarrollador().loteoUbicacion||'')}</div>
   <div class="rcpt-row"><b>Recibo N°:</b><span>${nro}</span></div>
-  <div class="rcpt-row"><b>Fecha:</b><span>${c.Fecha}</span></div>
-  <div class="rcpt-row"><b>Lote:</b><span>${c.Lote}</span></div>
-  <div class="rcpt-row"><b>Cliente:</b><span>${nombreCliente}</span></div>
-  ${dni?`<div class="rcpt-row"><b>DNI:</b><span>${dni}</span></div>`:''}
-  <div class="rcpt-row"><b>Concepto:</b><span>${c.Concepto}</span></div>
-  <div class="rcpt-row"><b>Medio de Pago:</b><span>${c.Medio}</span></div>
-  ${c.Obs?`<div class="rcpt-row"><b>Obs:</b><span>${c.Obs}</span></div>`:''}
+  <div class="rcpt-row"><b>Fecha:</b><span>${esc(c.Fecha)}</span></div>
+  <div class="rcpt-row"><b>Lote:</b><span>${esc(c.Lote)}</span></div>
+  <div class="rcpt-row"><b>Cliente:</b><span>${esc(nombreCliente)}</span></div>
+  ${dni?`<div class="rcpt-row"><b>DNI:</b><span>${esc(dni)}</span></div>`:''}
+  <div class="rcpt-row"><b>Concepto:</b><span>${esc(c.Concepto)}</span></div>
+  <div class="rcpt-row"><b>Medio de Pago:</b><span>${esc(c.Medio)}</span></div>
+  ${c.Obs?`<div class="rcpt-row"><b>Obs:</b><span>${esc(c.Obs)}</span></div>`:''}
   <div class="rcpt-total"><span>TOTAL COBRADO:</span><span>${montoFmt}</span></div>
-  <div class="rcpt-firma">Firma y Aclaración<br><br><br>__________________________<br>El Desarrollador — ${getLoteoNombre()}</div>`;
+  <div class="rcpt-firma">Firma y Aclaración<br><br><br>__________________________<br>El Desarrollador — ${esc(getLoteoNombre())}</div>`;
 }
 
 function toggleEditRecibo(){
@@ -3087,15 +3268,15 @@ async function enviarReciboMail(){
 
   const htmlBody=`<div style="font-family:monospace;max-width:480px;margin:0 auto;border:2px solid #222;padding:28px 32px">
   <h2 style="text-align:center;font-size:15px;letter-spacing:1px;margin-bottom:4px">RECIBO DE PAGO</h2>
-  <p style="text-align:center;font-size:11px;color:#555;border-bottom:1px dashed #888;padding-bottom:10px;margin-bottom:14px">${getLoteoNombre().toUpperCase()} — Loteo Residencial<br>${getDesarrollador().loteoUbicacion||''}</p>
+  <p style="text-align:center;font-size:11px;color:#555;border-bottom:1px dashed #888;padding-bottom:10px;margin-bottom:14px">${esc(getLoteoNombre().toUpperCase())} — Loteo Residencial<br>${esc(getDesarrollador().loteoUbicacion||'')}</p>
   <table style="width:100%;font-size:12px;border-collapse:collapse">
     <tr><td><b>Recibo N°:</b></td><td style="text-align:right">${nro}</td></tr>
-    <tr><td><b>Fecha:</b></td><td style="text-align:right">${c.Fecha}</td></tr>
-    <tr><td><b>Lote:</b></td><td style="text-align:right">${c.Lote}</td></tr>
-    <tr><td><b>Cliente:</b></td><td style="text-align:right">${nombreCliente}</td></tr>
-    <tr><td><b>Concepto:</b></td><td style="text-align:right">${c.Concepto}</td></tr>
-    <tr><td><b>Medio de Pago:</b></td><td style="text-align:right">${c.Medio}</td></tr>
-    ${c.Obs?`<tr><td><b>Obs:</b></td><td style="text-align:right">${c.Obs}</td></tr>`:''}
+    <tr><td><b>Fecha:</b></td><td style="text-align:right">${esc(c.Fecha)}</td></tr>
+    <tr><td><b>Lote:</b></td><td style="text-align:right">${esc(c.Lote)}</td></tr>
+    <tr><td><b>Cliente:</b></td><td style="text-align:right">${esc(nombreCliente)}</td></tr>
+    <tr><td><b>Concepto:</b></td><td style="text-align:right">${esc(c.Concepto)}</td></tr>
+    <tr><td><b>Medio de Pago:</b></td><td style="text-align:right">${esc(c.Medio)}</td></tr>
+    ${c.Obs?`<tr><td><b>Obs:</b></td><td style="text-align:right">${esc(c.Obs)}</td></tr>`:''}
   </table>
   <p style="display:flex;justify-content:space-between;font-size:14px;font-weight:700;border-top:2px solid #222;padding-top:10px;margin-top:14px">
     <span>TOTAL COBRADO:</span><span>${montoFmt}</span>
@@ -3138,22 +3319,22 @@ function renderGastos(){
   const rows=lista.length?[...lista].reverse().map(g=>{
     const i=db.gastos.indexOf(g);
     const compLink=g.ComprobanteUrl
-      ?`<a href="${g.ComprobanteUrl}" target="_blank" title="Ver comprobante" style="font-size:18px;text-decoration:none;line-height:1">📎</a>`
+      ?`<a href="${esc(safeUrl(g.ComprobanteUrl))}" target="_blank" rel="noopener noreferrer" title="Ver comprobante" style="font-size:18px;text-decoration:none;line-height:1">📎</a>`
       :'';
     return`<tr>
-    <td>${g.Fecha}</td><td>${g.Concepto}</td>
-    <td><span class="badge badge-blue">${g.Categoria}</span></td>
-    <td>${usd(g.Monto)}</td><td><span class="badge badge-gold">${g.Socio}</span></td>
-    <td style="font-size:11px;color:var(--muted)">${g.Obs||''}</td>
+    <td>${esc(g.Fecha)}</td><td>${esc(g.Concepto)}</td>
+    <td><span class="badge badge-blue">${esc(g.Categoria)}</span></td>
+    <td>${usd(g.Monto)}</td><td><span class="badge badge-gold">${esc(g.Socio)}</span></td>
+    <td style="font-size:11px;color:var(--muted)">${esc(g.Obs||'')}</td>
     <td style="text-align:center">${compLink}</td>
-    <td><button class="btn btn-danger btn-sm role-admin" onclick="deleteGasto(${i})">🗑</button></td>
+    <td style="white-space:nowrap"><button class="btn btn-outline btn-sm role-write" onclick="editGasto(${i})" title="Editar gasto">✏️</button> <button class="btn btn-danger btn-sm role-admin" onclick="deleteGasto(${i})">🗑</button></td>
   </tr>`;}).join(''):`<tr><td colspan="8" class="empty">Sin gastos${fs?' para '+fs.split(' ')[0]:''} registrados.</td></tr>`;
   id('content').innerHTML=`
   <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap">
     ${getSocios().map(s=>{
       const activo=s.nombre===fs;
-      return`<div class="stat-card" style="flex:1;min-width:160px;cursor:pointer;border:2px solid ${activo?'var(--navy)':'var(--border)'};background:${activo?'var(--navy)':'var(--card)'};color:${activo?'#fff':'inherit'};border-radius:12px;transition:all .15s" onclick="filtrarGastSocio('${s.nombre.replace(/'/g,"\\'")}')">
-        <div class="label" style="${activo?'color:rgba(255,255,255,.7)':''}">${s.nombre.split(' ')[0]}</div>
+      return`<div class="stat-card" style="flex:1;min-width:160px;cursor:pointer;border:2px solid ${activo?'var(--navy)':'var(--border)'};background:${activo?'var(--navy)':'var(--card)'};color:${activo?'#fff':'inherit'};border-radius:12px;transition:all .15s" onclick="filtrarGastSocio(${escJs(s.nombre)})">
+        <div class="label" style="${activo?'color:rgba(255,255,255,.7)':''}">${esc(s.nombre.split(' ')[0])}</div>
         <div class="value" style="font-size:18px;color:${activo?'#fff':'var(--red)'}">${usd(porSocio[s.nombre]||0)}</div>
         <div class="sub" style="${activo?'color:rgba(255,255,255,.6)':''}">${s.pct}% · ${activo?'clic para quitar':'clic para filtrar'}</div>
       </div>`;
@@ -3190,7 +3371,7 @@ function renderGastos(){
     </div>
   </div>`;})()}
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-    <div style="font-size:13px;color:var(--muted)">${fs?`Filtrando: <b>${fs}</b> — ${lista.length} gastos · <b style="color:var(--red)">${usd(totalFiltro)}</b>`:`${db.gastos.length} gastos totales`}</div>
+    <div style="font-size:13px;color:var(--muted)">${fs?`Filtrando: <b>${esc(fs)}</b> — ${lista.length} gastos · <b style="color:var(--red)">${usd(totalFiltro)}</b>`:`${db.gastos.length} gastos totales`}</div>
     <button class="btn btn-primary role-write" onclick="openModalGasto()">+ Registrar Gasto</button>
   </div>
   <div class="table-wrap"><div class="table-header"><h3>Gastos</h3></div>
@@ -3218,10 +3399,39 @@ async function saveGasto(){
       showToast('⚠️ No se pudo subir el comprobante, el gasto se guarda igual','err');
     }
   }
+  const editIdx=parseInt(id('g-editing-idx').value);
+  if(editIdx>=0&&db.gastos[editIdx]){
+    // ── EDICIÓN ── (se guarda en el servidor ANTES de dar el cambio por hecho)
+    const g=db.gastos[editIdx];
+    const nuevo={...g,Fecha:id('g-fecha').value,Concepto:id('g-concepto').value,Categoria:id('g-cat').value,Monto:monto,Socio:id('g-socio').value,Obs:id('g-obs').value,ComprobanteUrl:comprobanteUrl||g.ComprobanteUrl||''};
+    if(!g._sbid){
+      showToast('⚠️ Este gasto no tiene id en el servidor; sincronizá y reintentá','err');
+      if(btn){btn.disabled=false;btn.textContent='Guardar';}
+      return;
+    }
+    setSbStatus('saving');
+    const {error}=await sb.from('gastos').update(gastoToSB(nuevo)).eq('id',g._sbid);
+    setSbStatus(error?'offline':'online');
+    if(btn){btn.disabled=false;btn.textContent='Guardar';}
+    if(error){showToast('⚠️ No se pudo guardar el cambio: '+error.message,'err');console.error(error);return;}
+    Object.assign(g,nuevo);
+    auditLog('EDITO','gastos',g._sbid,{concepto:g.Concepto,monto:g.Monto});
+    if(fileInput)fileInput.value='';
+    id('g-comp-preview').style.display='none';
+    closeModal('modal-gasto');
+    showToast('✅ Gasto actualizado');
+    renderGastos();
+    return;
+  }
   const gasto={Fecha:id('g-fecha').value,Concepto:id('g-concepto').value,Categoria:id('g-cat').value,Monto:monto,Socio:id('g-socio').value,Obs:id('g-obs').value,ComprobanteUrl:comprobanteUrl};
-  db.gastos.push(gasto);
   const row=await sbInsert('gastos',gastoToSB(gasto));
-  if(row)gasto._sbid=row.id;
+  if(!row){
+    // No se pudo guardar: no se agrega a la lista como si estuviera guardado
+    if(btn){btn.disabled=false;btn.textContent='Guardar';}
+    return;
+  }
+  gasto._sbid=row.id;
+  db.gastos.push(gasto);
   if(btn){btn.disabled=false;btn.textContent='Guardar';}
   if(fileInput)fileInput.value='';
   id('g-comp-preview').style.display='none';
@@ -3242,8 +3452,14 @@ async function auditLog(accion,tabla,registroId,datos){
 }
 async function sbSoftDelete(tabla,id,extraData){
   const upd={deleted_at:new Date().toISOString(),deleted_by:_auditUser()};
-  await sb.from(tabla).update(upd).eq('id',id);
+  const {error}=await sb.from(tabla).update(upd).eq('id',id);
+  if(error){
+    console.error('sbSoftDelete',tabla,id,error);
+    showToast('⚠️ El borrado NO se guardó en el servidor ('+error.message+'). Recargá la página antes de seguir.','err');
+    return false;
+  }
   auditLog('BORRO',tabla,id,extraData);
+  return true;
 }
 
 function deleteGasto(i){
@@ -3357,7 +3573,7 @@ function renderPlano(){
   const nZonas = Object.keys(zonas).length;
   const nLotes = db.terrenos.length;
   
-  const lotesSelect = sortLotes(db.terrenos).map(t=>`<option value="${t.Lote}">${t.Lote} — ${t.Estado}</option>`).join('');
+  const lotesSelect = sortLotes(db.terrenos).map(t=>`<option value="${esc(t.Lote)}">${esc(t.Lote)} — ${esc(t.Estado)}</option>`).join('');
   
   id('content').innerHTML=`
   <div class="plano-toolbar">
@@ -3413,7 +3629,7 @@ function planoPrint(){
   const w=window.open('','_blank','width=1000,height=720');
   w.document.write('<!DOCTYPE html><html><head>'+
     '<meta charset="UTF-8">'+
-    '<title>Plano '+getLoteoNombre()+' — '+fecha+'</title>'+
+    '<title>Plano '+esc(getLoteoNombre())+' — '+fecha+'</title>'+
     '<style>'+
     '*{margin:0;padding:0;box-sizing:border-box}'+
     'body{background:#fff;font-family:"Segoe UI",sans-serif;color:#1a1a2e}'+
@@ -3430,7 +3646,7 @@ function planoPrint(){
     '.footer{padding:8px 16px;font-size:10px;color:#999;text-align:right}'+
     '@media print{@page{size:landscape;margin:8mm}}'+
     '</style></head><body>'+
-    '<h1>Plano '+getLoteoNombre()+'</h1>'+
+    '<h1>Plano '+esc(getLoteoNombre())+'</h1>'+
     '<div class="subtitle">Estado al '+fecha+' '+hora+'</div>'+
     '<div class="stats">'+
     '<div class="stat"><b>'+vendibles.length+'</b>Lotes vendibles</div>'+
@@ -3478,7 +3694,7 @@ function planoHandleMouseMove(e){
         const t=db.terrenos.find(x=>x.Lote===lote);
         if(t){
           const tt=id('plano-tooltip');
-          tt.innerHTML=`<b>Lote ${lote}</b><br>${t.Estado}${t.M2?'<br>'+t.M2+' m²':''}<br><span style="color:var(--gold)">${t.PrecioListaUSD?'U$S '+parseFloat(t.PrecioListaUSD).toLocaleString('es-AR'):'Sin precio'}</span>`;
+          tt.innerHTML=`<b>Lote ${esc(lote)}</b><br>${esc(t.Estado)}${t.M2?'<br>'+t.M2+' m²':''}<br><span style="color:var(--gold)">${t.PrecioListaUSD?'U$S '+parseFloat(t.PrecioListaUSD).toLocaleString('es-AR'):'Sin precio'}</span>`;
           tt.style.display='block';
           tt.style.left=(e.clientX+14)+'px';
           tt.style.top=(e.clientY-10)+'px';
@@ -3663,29 +3879,29 @@ function planoLoteClick(lote){
         +'<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:10px">Datos de Venta</div>'
         +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
         +'<div style="width:36px;height:36px;border-radius:50%;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0">'+inicial+'</div>'
-        +'<div><div style="font-weight:700;font-size:13px">'+(venta.ClienteNombre||'')+'</div>'
+        +'<div><div style="font-weight:700;font-size:13px">'+esc(venta.ClienteNombre||'')+'</div>'
         +'<div style="font-size:11px;color:var(--muted)">'+venta.Fecha+' · '+cuotasLabel+'</div></div>'
         +'</div>'+cuentaHTML+'</div>';
     }
 
     // Botones footer
     let footHTML='';
-    if(t.Estado==='Disponible') footHTML+='<button class="btn btn-outline btn-sm role-write" onclick="openModalReserva(\''+lote+'\');planoCerrarPanel();" title="Reservar lote">📌 Reservar</button>';
-    if(t.Estado==='Reservado') footHTML+='<button class="btn btn-outline btn-sm role-write" onclick="setEstadoComercial(\''+lote+'\',\'Disponible\');planoCerrarPanel();renderPlano();" title="Liberar reserva">↩️ Liberar</button>';
+    if(t.Estado==='Disponible') footHTML+='<button class="btn btn-outline btn-sm role-write" onclick="openModalReserva('+escJs(lote)+');planoCerrarPanel();" title="Reservar lote">📌 Reservar</button>';
+    if(t.Estado==='Reservado') footHTML+='<button class="btn btn-outline btn-sm role-write" onclick="setEstadoComercial('+escJs(lote)+',\'Disponible\');planoCerrarPanel();renderPlano();" title="Liberar reserva">↩️ Liberar</button>';
     if(t.Estado==='Disponible'||t.Estado==='Reservado') footHTML+='<button class="btn btn-primary btn-sm role-write" style="flex:1" onclick="planoCerrarPanel();showModule(\'ventas\')">+ Registrar venta</button>';
     if(venta) footHTML+='<button class="btn btn-outline btn-sm" style="flex:1" onclick="planoAbrirEstado()">📋 Estado de cuenta</button>';
     if(venta) footHTML+='<button class="btn btn-gold btn-sm" style="flex:1" onclick="planoAbrirCobro()">💳 Cobrar</button>';
 
-    const obsHTML=t.Obs?'<div style="background:#FEF9E7;border-radius:8px;padding:10px 12px;font-size:12px;color:#7D6608"><b>Obs:</b> '+t.Obs+'</div>':'';
+    const obsHTML=t.Obs?'<div style="background:#FEF9E7;border-radius:8px;padding:10px 12px;font-size:12px;color:#7D6608"><b>Obs:</b> '+esc(t.Obs)+'</div>':'';
 
     const panelHTML=
       '<div id="plano-panel-head">'
       +'<div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">Lote</div>'
-      +'<div style="font-size:22px;font-weight:800;color:var(--navy)">'+lote+'</div></div>'
+      +'<div style="font-size:22px;font-weight:800;color:var(--navy)">'+esc(lote)+'</div></div>'
       +'<button onclick="planoCerrarPanel()" style="background:none;border:none;font-size:22px;color:var(--muted);cursor:pointer;line-height:1;padding:4px">✕</button>'
       +'</div>'
       +'<div id="plano-panel-body">'
-      +'<div style="margin-bottom:16px;display:flex;gap:6px;flex-wrap:wrap"><span class="badge '+estadoBadge+'" style="font-size:13px;padding:5px 14px">'+t.Estado+'</span>'
+      +'<div style="margin-bottom:16px;display:flex;gap:6px;flex-wrap:wrap"><span class="badge '+estadoBadge+'" style="font-size:13px;padding:5px 14px">'+esc(t.Estado)+'</span>'
       +(t.Estado==='Vendido'?estadoFinancieroBadge(estadoFinancieroDeLote(t)):'')+'</div>'
       +'<div class="plano-panel-kpis">'
       +'<div class="plano-panel-kpi"><div class="pk-l">Superficie</div><div class="pk-v">'+(t.M2?t.M2+' m²':'—')+'</div></div>'
@@ -3988,17 +4204,17 @@ async function renderHistorial(){
   const {data:logs,error}=await sb.from('audit_log')
     .select('*').eq('loteo_id',currentLoteoId)
     .order('timestamp',{ascending:false}).limit(200);
-  if(error){id('content').innerHTML='<div class="alert alert-info">Error cargando historial: '+error.message+'</div>';return;}
+  if(error){id('content').innerHTML='<div class="alert alert-info">Error cargando historial: '+esc(error.message)+'</div>';return;}
   if(!logs||!logs.length){id('content').innerHTML='<div class="empty" style="padding:40px">Sin registros de auditoría todavía.</div>';return;}
 
   const accionBadge=a=>a==='BORRO'?'<span class="badge badge-red">🗑️ Borró</span>':a==='EDITO'?'<span class="badge badge-orange">✏️ Editó</span>':'<span class="badge badge-green">➕ Creó</span>';
   const tablaBadge=t=>t==='gastos'?'<span class="badge badge-gold">Gasto</span>':t==='cobranzas'?'<span class="badge badge-blue">Cobro</span>':'<span class="badge badge-orange">Venta</span>';
   const fmtTs=ts=>{const d=new Date(ts);return d.toLocaleDateString('es-AR')+' '+d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});};
   const rows=logs.map(l=>{
-    const datos=l.datos?Object.entries(l.datos).filter(([k,v])=>v!=null&&v!=='').map(([k,v])=>`<span style="font-size:10px;color:var(--muted);margin-right:6px"><b>${k}:</b> ${v}</span>`).join(''):'';
+    const datos=l.datos?Object.entries(l.datos).filter(([k,v])=>v!=null&&v!=='').map(([k,v])=>`<span style="font-size:10px;color:var(--muted);margin-right:6px"><b>${esc(k)}:</b> ${esc(typeof v==='object'?JSON.stringify(v):v)}</span>`).join(''):'';
     return`<tr>
       <td style="font-size:12px;white-space:nowrap">${fmtTs(l.timestamp)}</td>
-      <td><span style="font-size:13px;font-weight:600">${l.usuario}</span></td>
+      <td><span style="font-size:13px;font-weight:600">${esc(l.usuario)}</span></td>
       <td>${accionBadge(l.accion)}</td>
       <td>${tablaBadge(l.tabla)}</td>
       <td style="font-size:11px;color:var(--muted)">${datos}</td>
@@ -4033,7 +4249,7 @@ function renderPosicion(){
     const tag=neto>0?'Invertido neto':'Recuperado neto';
     return`<div class="stat-card" style="flex:1;min-width:200px;border-radius:14px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-        <div style="font-weight:700;font-size:15px">${s.nombre}</div>
+        <div style="font-weight:700;font-size:15px">${esc(s.nombre)}</div>
         <span class="badge badge-blue">${s.pct}%</span>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">
@@ -4053,35 +4269,6 @@ function renderPosicion(){
     </div>`;
   }).join('');
 
-  // ── Calcular transferencias de balanceo entre socios ──
-  const _posArr=socios.map(s=>({nombre:s.nombre,neto:sp[s.nombre].neto}));
-  const _creds=_posArr.filter(p=>p.neto>0.5).map(p=>({...p})).sort((a,b)=>b.neto-a.neto);
-  const _debts=_posArr.filter(p=>p.neto<-0.5).map(p=>({...p,neto:-p.neto})).sort((a,b)=>b.neto-a.neto);
-  const _transfers=[];
-  let ci=0,di=0;
-  while(ci<_creds.length&&di<_debts.length){
-    const amt=Math.min(_creds[ci].neto,_debts[di].neto);
-    if(amt>0.5)_transfers.push({from:_debts[di].nombre,to:_creds[ci].nombre,amt});
-    _creds[ci].neto-=amt;_debts[di].neto-=amt;
-    if(_creds[ci].neto<0.5)ci++;
-    if(_debts[di].neto<0.5)di++;
-  }
-  const balanceoHTML=_transfers.length===0
-    ?`<div style="display:flex;align-items:center;gap:10px;padding:14px 18px;background:rgba(39,174,96,.08);border-radius:12px;border:1px solid rgba(39,174,96,.25)">
-        <span style="font-size:22px">✅</span>
-        <div style="font-size:14px;font-weight:600;color:var(--green)">Los socios están equilibrados — no hay transferencias pendientes</div>
-      </div>`
-    :_transfers.map(t=>`
-      <div style="display:flex;align-items:center;gap:12px;padding:14px 20px;background:#fff;border-radius:12px;border:1px solid var(--border);box-shadow:0 1px 4px rgba(0,0,0,.06)">
-        <div style="font-size:15px;font-weight:700;color:var(--navy);min-width:80px">${t.from}</div>
-        <div style="flex:1;text-align:center">
-          <div style="font-size:11px;color:var(--muted);margin-bottom:2px">debe transferir</div>
-          <div style="font-size:22px;font-weight:900;color:var(--red)">${usd(t.amt)}</div>
-        </div>
-        <div style="font-size:20px">➡️</div>
-        <div style="font-size:15px;font-weight:700;color:var(--navy);min-width:80px;text-align:right">${t.to}</div>
-      </div>`).join('');
-
   id('content').innerHTML=`
   <!-- SOCIOS -->
   <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:12px;display:flex;align-items:center;gap:6px">
@@ -4090,16 +4277,6 @@ function renderPosicion(){
   </div>
   <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:28px">
     ${socioCards}
-  </div>
-
-  <!-- BALANCEO -->
-  <div class="chart-card" style="margin-bottom:24px;border-left:5px solid ${_transfers.length?'var(--red)':'var(--green)'}">
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
-      <span style="font-size:22px">⚖️</span>
-      <div style="font-size:16px;font-weight:800;color:var(--navy)">Balanceo entre Socios</div>
-      <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:4px">para igualar posiciones netas</span>
-    </div>
-    <div style="display:flex;flex-direction:column;gap:10px">${balanceoHTML}</div>
   </div>
 
   <!-- CAJA DEL LOTEO -->
@@ -4674,7 +4851,7 @@ function imprimirCotizacion(){
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<title>Cotización — ${loteo}</title>
+<title>Cotización — ${esc(loteo)}</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:'Segoe UI',Arial,sans-serif;color:#1a1a2e;background:#fff;padding:40px;max-width:680px;margin:0 auto}
@@ -4710,7 +4887,7 @@ function imprimirCotizacion(){
 <body>
 <div class="header">
   <div class="header-left">
-    <h1>${loteo}</h1>
+    <h1>${esc(loteo)}</h1>
     <p>Cotización de Lote</p>
   </div>
   <div class="header-right">
@@ -4722,7 +4899,7 @@ function imprimirCotizacion(){
 <div class="lote-hero">
   <div>
     <div class="lh-label">Lote</div>
-    <div class="lh-val">${loteLabel}</div>
+    <div class="lh-val">${esc(loteLabel)}</div>
     <div class="lh-sub">${m2.toLocaleString('es-AR')} m²</div>
   </div>
   <div style="text-align:right">
