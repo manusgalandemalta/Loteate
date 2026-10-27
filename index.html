@@ -1148,7 +1148,7 @@ function syncTerrenosConVentas(){
 async function pushAllToSupabase(){
   setSbStatus('saving');
   const ops=[];
-  if(db.terrenos.length) ops.push(sb.from('terrenos').upsert(db.terrenos.map(terrenoToSB),{onConflict:'lote'}));
+  if(db.terrenos.length) ops.push(sb.from('terrenos').upsert(db.terrenos.map(terrenoToSB),{onConflict:'loteo_id,lote'}));
   if(db.clientes.length) ops.push(sb.from('clientes').upsert(db.clientes.map(clienteToSB)));
   if(db.ventas.length) ops.push(sb.from('ventas').upsert(db.ventas.map(ventaToSB)));
   if(db.cuotas.length) ops.push(sb.from('cuotas').upsert(db.cuotas.map(cuotaToSB)));
@@ -1951,7 +1951,7 @@ function saveTerrenoEdit(){
   }
   (async()=>{
     setSbStatus('saving');
-    const {error}=await sb.from('terrenos').upsert(terrenoToSB(terreno),{onConflict:'lote'});
+    const {error}=await sb.from('terrenos').upsert(terrenoToSB(terreno),{onConflict:'loteo_id,lote'});
     setSbStatus(error?'offline':'online');
     if(error){showToast('⚠️ Error guardando lote: '+error.message,'err');console.error(error);}
     else showToast('Lote guardado','ok');
@@ -2010,7 +2010,7 @@ async function confirmCsvImport(){
     }
   });
   setSbStatus('saving');
-  const {error}=await sb.from('terrenos').upsert(afectados.map(terrenoToSB),{onConflict:'lote'});
+  const {error}=await sb.from('terrenos').upsert(afectados.map(terrenoToSB),{onConflict:'loteo_id,lote'});
   setSbStatus(error?'offline':'online');
   closeModal('modal-import-csv');renderTerrenos();
   if(error){
@@ -3020,7 +3020,7 @@ function fillCobroFromCuota(){
 // Último N° de recibo usado en el servidor, INCLUYENDO los recibos borrados (para no reutilizar números)
 async function _maxReciboServidor(){
   try{
-    const {data,error}=await sb.from('cobranzas').select('nro_recibo').eq('loteo_id',currentLoteoId).order('nro_recibo',{ascending:false}).limit(1);
+    const {data,error}=await sb.from('cobranzas').select('nro_recibo').eq('loteo_id',currentLoteoId).not('nro_recibo','is',null).order('nro_recibo',{ascending:false}).limit(1);
     if(error)throw error;
     return (data&&data[0]&&Number(data[0].nro_recibo))||0;
   }catch(e){console.warn('No se pudo consultar el último recibo',e);return 0;}
