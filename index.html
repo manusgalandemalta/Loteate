@@ -2856,29 +2856,29 @@ async function descargarBoletoPDF(){
     });
     if(!ok){imprimirBoleto();showToast('⚠️ Sin conexión para PDF. Usá Imprimir → Guardar como PDF','err');return;}
   }
-  const div=document.createElement('div');
-  div.style.cssText='position:fixed;left:-9999px;top:0;width:174mm;background:#fff';
-  div.innerHTML=`<style>${_boletoCSS()}</style><div class="boleto-doc">${id('boleto-content').innerHTML}</div>`;
-  document.body.appendChild(div);
+  // Se pasa como texto: html2pdf arma su propio contenedor visible para la captura
+  // (un div escondido fuera de pantalla sale en blanco).
+  const html=`<div style="width:174mm;background:#fff"><style>${_boletoCSS()}</style><div class="boleto-doc">${id('boleto-content').innerHTML}</div></div>`;
   const opt={margin:[20,18,20,18],filename,image:{type:'jpeg',quality:0.98},
-    html2canvas:{scale:2,useCORS:true},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},
+    html2canvas:{scale:2,useCORS:true,scrollX:0,scrollY:0},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},
     pagebreak:{mode:['css','legacy'],avoid:['p','tr','.cla','.firmas','h2','h3']}};
-  const limpiar=()=>{if(document.body.contains(div))document.body.removeChild(div);};
   try{
     if(window.showSaveFilePicker){
+      let handle;
       try{
-        const blob=await html2pdf().set(opt).from(div).outputPdf('blob');
-        limpiar();
-        const handle=await window.showSaveFilePicker({suggestedName:filename,types:[{description:'PDF',accept:{'application/pdf':['.pdf']}}]});
+        handle=await window.showSaveFilePicker({suggestedName:filename,types:[{description:'PDF',accept:{'application/pdf':['.pdf']}}]});
+      }catch(e){if(e.name==='AbortError')return;handle=null;}
+      if(handle){
+        const blob=await html2pdf().set(opt).from(html,'string').outputPdf('blob');
         const w=await handle.createWritable();await w.write(blob);await w.close();
         showToast('✅ PDF guardado');return;
-      }catch(e){limpiar();if(e.name==='AbortError')return;document.body.appendChild(div);}
+      }
     }
-    await html2pdf().set(opt).from(div).save();
+    await html2pdf().set(opt).from(html,'string').save();
     showToast('✅ PDF descargado');
   }catch(e){
     showToast('⚠️ No se pudo generar el PDF. Probá con Imprimir → Guardar como PDF','err');
-  }finally{limpiar();}
+  }
 }
 
 async function enviarBoletoMail(){
