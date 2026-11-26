@@ -712,8 +712,8 @@ input[required-mark]::placeholder::after{content:' *';color:var(--red)}
             <option>Santiago del Estero</option><option>Tierra del Fuego</option><option>Tucumán</option>
           </select>
         </div>
-        <div class="form-group" id="fg-mail"><label>Mail <span style="color:var(--red)">*</span></label><input id="c-mail" type="email" placeholder="ejemplo@mail.com"><span class="field-err-msg" id="fg-mail-msg">Ingresá un mail válido.</span></div>
-        <div class="form-group" id="fg-tel"><label>Teléfono <span style="color:var(--red)">*</span></label><input id="c-tel" placeholder="Ej: 02972 123456 o 11 4567 8901"><span class="field-err-msg" id="fg-tel-msg">Número inválido para Argentina.</span></div>
+        <div class="form-group" id="fg-mail"><label>Mail</label><input id="c-mail" type="email" placeholder="ejemplo@mail.com"><span class="field-err-msg" id="fg-mail-msg">Ingresá un mail válido.</span></div>
+        <div class="form-group" id="fg-tel"><label>Teléfono</label><input id="c-tel" placeholder="Ej: 02972 123456 o 11 4567 8901"><span class="field-err-msg" id="fg-tel-msg">Número inválido para Argentina.</span></div>
         <div class="form-group"><label>Fecha de Nacimiento</label><input id="c-fnac" type="date"></div>
         <div class="form-group"><label>Nacionalidad</label><input id="c-nac" placeholder="argentino/a"></div>
         <div class="form-group"><label>Estado Civil</label>
@@ -2065,8 +2065,8 @@ function saveCliente(){
   if(!nombre){setFieldError('fg-nombre','Campo obligatorio.',true);ok=false;}
   if(!apellido){setFieldError('fg-apellido','Campo obligatorio.',true);ok=false;}
   if(!dni){setFieldError('fg-dni','Campo obligatorio.',true);ok=false;}
-  if(!mail||!validarMail(mail)){setFieldError('fg-mail','Ingresá un mail válido.',true);ok=false;}
-  if(!tel||!validarTelefono(tel)){
+  if(mail&&!validarMail(mail)){setFieldError('fg-mail','Ingresá un mail válido.',true);ok=false;}
+  if(tel&&!validarTelefono(tel)){
     const lpn=_lpn();
     setFieldError('fg-tel',lpn?'Número inválido para Argentina (ej: 02972 123456).':'Ingresá al menos 8 dígitos.',true);
     ok=false;
@@ -2391,7 +2391,7 @@ function saveVenta(){
     const pagadas=db.cuotas.filter(c=>c.VentaID===ventaID&&c.Estado==='Pagada');
     cuotasEliminadas=db.cuotas.filter(c=>c.VentaID===ventaID&&c.Estado!=='Pagada').map(c=>String(c.ID));
     db.cuotas=db.cuotas.filter(c=>c.VentaID!==ventaID||c.Estado==='Pagada');
-    const nroPagados=pagadas.filter(c=>!c.EsSena).map(c=>c.Nro);
+    const nroPagados=pagadas.filter(c=>!c.EsSena).map(c=>parseInt(c.Nro));
     const senaPagada=pagadas.find(c=>c.EsSena);
     // Regenerar cuotas pendientes
     if(n>0) for(let i=0;i<n;i++){
@@ -2721,8 +2721,10 @@ function showBoleto(i){
   const cliente=db.clientes.find(c=>c.ID===v.ClienteID);
   const terr=db.terrenos.find(t=>t.Lote===v.Lote);
   const cuotasVenta=db.cuotas.filter(c=>c.VentaID===v.ID).sort((a,b)=>a.Nro-b.Nro);
-  const primeraCuota=cuotasVenta[0];
-  const ultimaCuota=cuotasVenta[cuotasVenta.length-1];
+  // Primera/última cuota del SALDO (sin la seña, que vence en la fecha de venta)
+  const _cuotasSaldoOrd=cuotasVenta.filter(c=>!c.EsSena).sort((a,b)=>(parseInt(a.Nro)||0)-(parseInt(b.Nro)||0));
+  const primeraCuota=_cuotasSaldoOrd[0];
+  const ultimaCuota=_cuotasSaldoOrd[_cuotasSaldoOrd.length-1];
   const saldo=parseFloat(v.PrecioTotal)-parseFloat(v.Sena);
   const m2=terr?terr.M2:'___';
   const nac=cliente?cliente.Nacionalidad||'argentino/a':'___';
